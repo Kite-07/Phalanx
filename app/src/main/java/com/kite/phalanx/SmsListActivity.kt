@@ -36,13 +36,17 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Done
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -116,6 +120,8 @@ class SmsListActivity : ComponentActivity() {
                 var selectedThreads by remember { mutableStateOf<Set<String>>(emptySet()) }
                 val isSelectionMode = selectedThreads.isNotEmpty()
                 var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+                var showBlockConfirmDialog by remember { mutableStateOf(false) }
+                var showOverflowMenu by remember { mutableStateOf(false) }
                 val context = LocalContext.current
                 val lifecycleOwner = this@SmsListActivity
                 val coroutineScope = rememberCoroutineScope()
@@ -302,12 +308,35 @@ class SmsListActivity : ComponentActivity() {
                                     }) {
                                         Icon(Icons.Default.Delete, contentDescription = "Delete")
                                     }
+                                    IconButton(onClick = {
+                                        showBlockConfirmDialog = true
+                                    }) {
+                                        Icon(Icons.Default.Warning, contentDescription = "Block")
+                                    }
                                 } else {
                                     IconButton(onClick = {
                                         isSearching = !isSearching
                                         if (!isSearching) searchQuery = ""
                                     }) {
                                         Icon(Icons.Default.Search, contentDescription = "Search")
+                                    }
+                                    IconButton(onClick = { showOverflowMenu = true }) {
+                                        Icon(Icons.Default.MoreVert, contentDescription = "More options")
+                                    }
+                                    DropdownMenu(
+                                        expanded = showOverflowMenu,
+                                        onDismissRequest = { showOverflowMenu = false }
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = { Text("Spam and blocked") },
+                                            onClick = {
+                                                showOverflowMenu = false
+                                                startActivity(Intent(this@SmsListActivity, SpamListActivity::class.java))
+                                            },
+                                            leadingIcon = {
+                                                Icon(Icons.Default.Warning, contentDescription = null)
+                                            }
+                                        )
                                     }
                                 }
                             }
@@ -404,6 +433,41 @@ class SmsListActivity : ComponentActivity() {
                         onDismiss = { showDeleteConfirmDialog = false }
                     )
                 }
+
+                if (showBlockConfirmDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showBlockConfirmDialog = false },
+                        title = { Text("Block ${if (selectedThreads.size == 1) "number" else "numbers"}?") },
+                        text = {
+                            Text(
+                                if (selectedThreads.size == 1) {
+                                    "Block this number? You can still view the conversation in the Spam folder."
+                                } else {
+                                    "Block ${selectedThreads.size} numbers? You can still view the conversations in the Spam folder."
+                                }
+                            )
+                        },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                showBlockConfirmDialog = false
+                                coroutineScope.launch {
+                                    selectedThreads.forEach { sender ->
+                                        SmsOperations.blockNumber(context, sender)
+                                    }
+                                    selectedThreads = emptySet()
+                                    refreshSmsList()
+                                }
+                            }) {
+                                Text("Block")
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showBlockConfirmDialog = false }) {
+                                Text("Cancel")
+                            }
+                        }
+                    )
+                }
             }
         }
     }
@@ -438,6 +502,9 @@ class SmsListActivity : ComponentActivity() {
                             ?: continue
                         if (latestByAddress.containsKey(address)) continue
 
+                        // Skip blocked numbers - they should only appear in spam folder
+                        if (SmsOperations.isNumberBlocked(this@SmsListActivity, address)) continue
+
                         val body = it.getString(indexBody).orEmpty()
                         val timestamp = it.getLong(indexDate)
                         val messageType = it.getInt(indexType)
@@ -459,7 +526,7 @@ class SmsListActivity : ComponentActivity() {
                             isSentByUser = isUserMessage(messageType),
                             contactPhotoUri = contactPhotoUri,
                             unreadCount = unreadCount,
-                            contactName = contactName,
+                            contactName = formatDisplayName(address, contactName),
                             draftText = draftText
                         )
                     } catch (e: Exception) {
@@ -529,6 +596,41 @@ class SmsListActivity : ComponentActivity() {
             }
         } catch (securityException: SecurityException) {
             null
+        }
+    }
+
+    /**
+     * Formats phone number with country flag emoji for unknown numbers
+     * Returns "contactName" if known, or "🇺🇸 phoneNumber" for unknown numbers
+     */
+    private fun formatDisplayName(phoneNumber: String, contactName: String?): String {
+        if (contactName != null) return contactName
+
+        // Extract country code from phone number
+        val cleanNumber = phoneNumber.replace(Regex("[^0-9+]"), "")
+        val flag = when {
+            cleanNumber.startsWith("+1") -> "🇺🇸"  // US/Canada flag
+            cleanNumber.startsWith("+44") -> "🇬🇧" // UK flag
+            cleanNumber.startsWith("+91") -> "🇮🇳" // India flag
+            cleanNumber.startsWith("+86") -> "🇨🇳" // China flag
+            cleanNumber.startsWith("+81") -> "🇯🇵" // Japan flag
+            cleanNumber.startsWith("+82") -> "🇰🇷" // South Korea flag
+            cleanNumber.startsWith("+33") -> "🇫🇷" // France flag
+            cleanNumber.startsWith("+49") -> "🇩🇪" // Germany flag
+            cleanNumber.startsWith("+61") -> "🇦🇺" // Australia flag
+            cleanNumber.startsWith("+52") -> "🇲🇽" // Mexico flag
+            cleanNumber.startsWith("+55") -> "🇧🇷" // Brazil flag
+            cleanNumber.startsWith("+39") -> "🇮🇹" // Italy flag
+            cleanNumber.startsWith("+34") -> "🇪🇸" // Spain flag
+            cleanNumber.startsWith("+7") -> "🇷🇺"  // Russia flag
+            cleanNumber.startsWith("+27") -> "🇿🇦" // South Africa flag
+            else -> null
+        }
+
+        return if (flag != null) {
+            "$flag $phoneNumber"
+        } else {
+            phoneNumber
         }
     }
 }
@@ -627,7 +729,7 @@ fun SmsCard(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = sms.contactName ?: sms.sender,
+                        text = sms.contactName ?: sms.sender, // contactName now includes country code prefix
                         style = MaterialTheme.typography.titleMedium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,

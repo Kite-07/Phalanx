@@ -52,6 +52,12 @@
             android:name="com.kite.phalanx.SmsDetailActivity"
             android:exported="false" />
         <activity android:name="com.kite.phalanx.ContactPickerActivity" />
+        <activity
+            android:name="com.kite.phalanx.SpamListActivity"
+            android:exported="false" />
+        <activity
+            android:name="com.kite.phalanx.SpamDetailActivity"
+            android:exported="false" />
 
         <!-- SMS Receiver for incoming messages -->
         <receiver

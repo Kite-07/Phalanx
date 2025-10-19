@@ -13,7 +13,10 @@ import android.provider.Telephony
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -31,10 +34,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MailOutline
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -156,6 +161,15 @@ class SmsDetailActivity : ComponentActivity() {
                 var showMenu by remember { mutableStateOf(false) }
                 var showDeleteConfirmDialog by remember { mutableStateOf(false) }
 
+                // Message selection state
+                var selectedMessages by remember { mutableStateOf<Set<Long>>(emptySet()) }
+                val isSelectionMode = selectedMessages.isNotEmpty()
+                var showDeleteSelectedConfirmDialog by remember { mutableStateOf(false) }
+
+                // Block state
+                var isBlocked by remember { mutableStateOf(SmsOperations.isNumberBlocked(this@SmsDetailActivity, sender)) }
+                var showBlockConfirmDialog by remember { mutableStateOf(false) }
+
                 // Restore draft when screen opens
                 LaunchedEffect(savedDraft) {
                     if (savedDraft.isNotBlank() && messageText.isBlank()) {
@@ -189,50 +203,82 @@ class SmsDetailActivity : ComponentActivity() {
                     topBar = {
                         TopAppBar(
                             title = {
-                                ContactTitle(
-                                    displayName = displayName,
-                                    contactPhoto = contactPhoto
-                                )
+                                if (isSelectionMode) {
+                                    Text("${selectedMessages.size} selected")
+                                } else {
+                                    ContactTitle(
+                                        displayName = displayName,
+                                        contactPhoto = contactPhoto
+                                    )
+                                }
                             },
                             navigationIcon = {
-                                IconButton(onClick = { finish() }) {
+                                IconButton(onClick = {
+                                    if (isSelectionMode) {
+                                        selectedMessages = emptySet()
+                                    } else {
+                                        finish()
+                                    }
+                                }) {
                                     Icon(
-                                        Icons.AutoMirrored.Filled.ArrowBack,
-                                        contentDescription = "Back"
+                                        if (isSelectionMode) Icons.Default.Close else Icons.AutoMirrored.Filled.ArrowBack,
+                                        contentDescription = if (isSelectionMode) "Clear selection" else "Back"
                                     )
                                 }
                             },
                             actions = {
-                                IconButton(onClick = { showMenu = true }) {
-                                    Icon(Icons.Default.MoreVert, contentDescription = "More options")
-                                }
-                                DropdownMenu(
-                                    expanded = showMenu,
-                                    onDismissRequest = { showMenu = false }
-                                ) {
-                                    // Only show these menu items if there are messages in the conversation
-                                    if (messages.isNotEmpty()) {
-                                        DropdownMenuItem(
-                                            text = { Text("Mark as unread") },
-                                            onClick = {
-                                                showMenu = false
-                                                SmsOperations.markAsUnread(this@SmsDetailActivity, sender)
-                                                finish()
-                                            },
-                                            leadingIcon = {
-                                                Icon(Icons.Default.MailOutline, contentDescription = null)
-                                            }
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text("Delete conversation") },
-                                            onClick = {
-                                                showMenu = false
-                                                showDeleteConfirmDialog = true
-                                            },
-                                            leadingIcon = {
-                                                Icon(Icons.Default.Delete, contentDescription = null)
-                                            }
-                                        )
+                                if (isSelectionMode) {
+                                    IconButton(onClick = { showDeleteSelectedConfirmDialog = true }) {
+                                        Icon(Icons.Default.Delete, contentDescription = "Delete selected")
+                                    }
+                                } else {
+                                    IconButton(onClick = { showMenu = true }) {
+                                        Icon(Icons.Default.MoreVert, contentDescription = "More options")
+                                    }
+                                    DropdownMenu(
+                                        expanded = showMenu,
+                                        onDismissRequest = { showMenu = false }
+                                    ) {
+                                        // Only show these menu items if there are messages in the conversation
+                                        if (messages.isNotEmpty()) {
+                                            DropdownMenuItem(
+                                                text = { Text("Mark as unread") },
+                                                onClick = {
+                                                    showMenu = false
+                                                    SmsOperations.markAsUnread(this@SmsDetailActivity, sender)
+                                                    finish()
+                                                },
+                                                leadingIcon = {
+                                                    Icon(Icons.Default.MailOutline, contentDescription = null)
+                                                }
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text(if (isBlocked) "Unblock number" else "Block number") },
+                                                onClick = {
+                                                    showMenu = false
+                                                    if (isBlocked) {
+                                                        if (SmsOperations.unblockNumber(this@SmsDetailActivity, sender)) {
+                                                            isBlocked = false
+                                                        }
+                                                    } else {
+                                                        showBlockConfirmDialog = true
+                                                    }
+                                                },
+                                                leadingIcon = {
+                                                    Icon(Icons.Default.Warning, contentDescription = null)
+                                                }
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text("Delete conversation") },
+                                                onClick = {
+                                                    showMenu = false
+                                                    showDeleteConfirmDialog = true
+                                                },
+                                                leadingIcon = {
+                                                    Icon(Icons.Default.Delete, contentDescription = null)
+                                                }
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -288,6 +334,23 @@ class SmsDetailActivity : ComponentActivity() {
                 ) { innerPadding ->
                     SmsDetailScreen(
                         messages = messages,
+                        selectedMessages = selectedMessages,
+                        onMessageLongClick = { timestamp ->
+                            selectedMessages = if (selectedMessages.contains(timestamp)) {
+                                selectedMessages - timestamp
+                            } else {
+                                selectedMessages + timestamp
+                            }
+                        },
+                        onMessageClick = { timestamp ->
+                            if (isSelectionMode) {
+                                selectedMessages = if (selectedMessages.contains(timestamp)) {
+                                    selectedMessages - timestamp
+                                } else {
+                                    selectedMessages + timestamp
+                                }
+                            }
+                        },
                         modifier = Modifier.padding(innerPadding)
                     )
                 }
@@ -317,6 +380,60 @@ class SmsDetailActivity : ComponentActivity() {
                         },
                         dismissButton = {
                             TextButton(onClick = { showDeleteConfirmDialog = false }) {
+                                Text("Cancel")
+                            }
+                        }
+                    )
+                }
+
+                if (showDeleteSelectedConfirmDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showDeleteSelectedConfirmDialog = false },
+                        title = { Text("Delete ${selectedMessages.size} message${if (selectedMessages.size > 1) "s" else ""}?") },
+                        text = { Text("Are you sure you want to delete the selected message${if (selectedMessages.size > 1) "s" else ""}? This action cannot be undone.") },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                showDeleteSelectedConfirmDialog = false
+                                var deletedCount = 0
+                                selectedMessages.forEach { timestamp ->
+                                    if (SmsOperations.deleteMessage(this@SmsDetailActivity, sender, timestamp)) {
+                                        deletedCount++
+                                    }
+                                }
+                                if (deletedCount > 0) {
+                                    selectedMessages = emptySet()
+                                    refreshTrigger++
+                                }
+                            }) {
+                                Text("Delete")
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showDeleteSelectedConfirmDialog = false }) {
+                                Text("Cancel")
+                            }
+                        }
+                    )
+                }
+
+                if (showBlockConfirmDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showBlockConfirmDialog = false },
+                        title = { Text("Block this number?") },
+                        text = { Text("$sender will be blocked from calling and messaging you. The conversation will be moved to spam.") },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                showBlockConfirmDialog = false
+                                if (SmsOperations.blockNumber(this@SmsDetailActivity, sender)) {
+                                    isBlocked = true
+                                    finish()
+                                }
+                            }) {
+                                Text("Block")
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showBlockConfirmDialog = false }) {
                                 Text("Cancel")
                             }
                         }
@@ -481,8 +598,15 @@ fun ContactTitle(displayName: String, contactPhoto: ImageBitmap?) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun SmsDetailScreen(messages: List<SmsMessage>, modifier: Modifier = Modifier) {
+fun SmsDetailScreen(
+    messages: List<SmsMessage>,
+    selectedMessages: Set<Long>,
+    onMessageLongClick: (Long) -> Unit,
+    onMessageClick: (Long) -> Unit,
+    modifier: Modifier = Modifier
+) {
     val messageUiModels = remember(messages) { buildMessageUiModels(messages) }
 
     LazyColumn(
@@ -497,14 +621,24 @@ fun SmsDetailScreen(messages: List<SmsMessage>, modifier: Modifier = Modifier) {
         ) { uiModel ->
             MessageBubble(
                 message = uiModel.message,
-                showTimestamp = uiModel.showTimestamp
+                showTimestamp = uiModel.showTimestamp,
+                isSelected = selectedMessages.contains(uiModel.message.timestamp),
+                onLongClick = { onMessageLongClick(uiModel.message.timestamp) },
+                onClick = { onMessageClick(uiModel.message.timestamp) }
             )
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun MessageBubble(message: SmsMessage, showTimestamp: Boolean) {
+fun MessageBubble(
+    message: SmsMessage,
+    showTimestamp: Boolean,
+    isSelected: Boolean,
+    onLongClick: () -> Unit,
+    onClick: () -> Unit
+) {
     val timeFormatter = remember { SimpleDateFormat("h:mm a", Locale.getDefault()) }
     val alignment = if (message.isSentByUser) Alignment.End else Alignment.Start
     val bubbleColor = if (message.isSentByUser) {
@@ -525,7 +659,23 @@ fun MessageBubble(message: SmsMessage, showTimestamp: Boolean) {
         Surface(
             color = bubbleColor,
             shape = RoundedCornerShape(16.dp),
-            tonalElevation = if (message.isSentByUser) 2.dp else 0.dp
+            tonalElevation = if (message.isSentByUser) 2.dp else 0.dp,
+            modifier = Modifier
+                .combinedClickable(
+                    onClick = onClick,
+                    onLongClick = onLongClick
+                )
+                .then(
+                    if (isSelected) {
+                        Modifier.border(
+                            width = 2.dp,
+                            color = MaterialTheme.colorScheme.primary,
+                            shape = RoundedCornerShape(16.dp)
+                        )
+                    } else {
+                        Modifier
+                    }
+                )
         ) {
             Text(
                 text = message.body,

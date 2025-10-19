@@ -284,4 +284,96 @@ object SmsOperations {
             0
         }
     }
+
+    /**
+     * Blocks a phone number by adding it to BlockedNumbers provider
+     * Requires WRITE_BLOCKED_NUMBERS permission on Android N+
+     */
+    fun blockNumber(context: Context, phoneNumber: String): Boolean {
+        return try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+                val values = ContentValues().apply {
+                    put(android.provider.BlockedNumberContract.BlockedNumbers.COLUMN_ORIGINAL_NUMBER, phoneNumber)
+                }
+                val uri = context.contentResolver.insert(
+                    android.provider.BlockedNumberContract.BlockedNumbers.CONTENT_URI,
+                    values
+                )
+                if (uri != null) {
+                    Log.d("SmsOperations", "Blocked number: $phoneNumber")
+                    Toast.makeText(context, "Number blocked", Toast.LENGTH_SHORT).show()
+                    true
+                } else {
+                    Log.e("SmsOperations", "Failed to block number: $phoneNumber")
+                    Toast.makeText(context, "Failed to block number", Toast.LENGTH_SHORT).show()
+                    false
+                }
+            } else {
+                Toast.makeText(context, "Blocking requires Android 7.0+", Toast.LENGTH_SHORT).show()
+                false
+            }
+        } catch (e: SecurityException) {
+            Log.e("SmsOperations", "Permission denied to block number", e)
+            Toast.makeText(context, "Permission required to block numbers", Toast.LENGTH_LONG).show()
+            false
+        } catch (e: Exception) {
+            Log.e("SmsOperations", "Error blocking number", e)
+            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+            false
+        }
+    }
+
+    /**
+     * Unblocks a phone number
+     */
+    fun unblockNumber(context: Context, phoneNumber: String): Boolean {
+        return try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+                val deleted = context.contentResolver.delete(
+                    android.provider.BlockedNumberContract.BlockedNumbers.CONTENT_URI,
+                    "${android.provider.BlockedNumberContract.BlockedNumbers.COLUMN_ORIGINAL_NUMBER} = ?",
+                    arrayOf(phoneNumber)
+                )
+                if (deleted > 0) {
+                    Log.d("SmsOperations", "Unblocked number: $phoneNumber")
+                    Toast.makeText(context, "Number unblocked", Toast.LENGTH_SHORT).show()
+                    true
+                } else {
+                    Log.w("SmsOperations", "Number not found in blocked list: $phoneNumber")
+                    Toast.makeText(context, "Number was not blocked", Toast.LENGTH_SHORT).show()
+                    false
+                }
+            } else {
+                false
+            }
+        } catch (e: Exception) {
+            Log.e("SmsOperations", "Error unblocking number", e)
+            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+            false
+        }
+    }
+
+    /**
+     * Checks if a phone number is blocked
+     */
+    fun isNumberBlocked(context: Context, phoneNumber: String): Boolean {
+        return try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+                context.contentResolver.query(
+                    android.provider.BlockedNumberContract.BlockedNumbers.CONTENT_URI,
+                    arrayOf(android.provider.BlockedNumberContract.BlockedNumbers.COLUMN_ID),
+                    "${android.provider.BlockedNumberContract.BlockedNumbers.COLUMN_ORIGINAL_NUMBER} = ?",
+                    arrayOf(phoneNumber),
+                    null
+                )?.use { cursor ->
+                    cursor.count > 0
+                } ?: false
+            } else {
+                false
+            }
+        } catch (e: Exception) {
+            Log.e("SmsOperations", "Error checking if number is blocked", e)
+            false
+        }
+    }
 }
