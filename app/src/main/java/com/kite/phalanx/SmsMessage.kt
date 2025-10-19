@@ -9,7 +9,8 @@ data class SmsMessage(
     val timestamp: Long,
     val isSentByUser: Boolean,
     val contactPhotoUri: Uri? = null,
-    val unreadCount: Int = 0
+    val unreadCount: Int = 0,
+    val contactName: String? = null
 )
 
 internal fun isUserMessage(type: Int): Boolean = when (type) {

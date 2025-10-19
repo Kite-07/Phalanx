@@ -25,6 +25,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MailOutline
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -35,6 +36,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -66,6 +68,7 @@ class SmsDetailActivity : ComponentActivity() {
                 var messages by remember { mutableStateOf(readSmsMessages(sender)) }
                 var messageText by remember { mutableStateOf("") }
                 var showMenu by remember { mutableStateOf(false) }
+                var showDeleteConfirmDialog by remember { mutableStateOf(false) }
 
                 Scaffold(
                     topBar = {
@@ -102,9 +105,7 @@ class SmsDetailActivity : ComponentActivity() {
                                         text = { Text("Delete conversation") },
                                         onClick = {
                                             showMenu = false
-                                            if (SmsOperations.deleteThread(this@SmsDetailActivity, sender)) {
-                                                finish()
-                                            }
+                                            showDeleteConfirmDialog = true
                                         },
                                         leadingIcon = {
                                             Icon(Icons.Default.Delete, contentDescription = null)
@@ -136,6 +137,29 @@ class SmsDetailActivity : ComponentActivity() {
                     SmsDetailScreen(
                         messages = messages,
                         modifier = Modifier.padding(innerPadding)
+                    )
+                }
+
+                if (showDeleteConfirmDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showDeleteConfirmDialog = false },
+                        title = { Text("Delete Conversation?") },
+                        text = { Text("Are you sure you want to delete this conversation? This action cannot be undone.") },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                showDeleteConfirmDialog = false
+                                if (SmsOperations.deleteThread(this@SmsDetailActivity, sender)) {
+                                    finish()
+                                }
+                            }) {
+                                Text("Delete")
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showDeleteConfirmDialog = false }) {
+                                Text("Cancel")
+                            }
+                        }
                     )
                 }
             }

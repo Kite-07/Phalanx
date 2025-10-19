@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.telephony.SmsManager
+import android.util.Log
 import android.widget.Toast
 import androidx.core.content.ContextCompat
 
@@ -40,18 +41,64 @@ object SmsHelper {
                 context,
                 0,
                 Intent(ACTION_SMS_SENT),
-                PendingIntent.FLAG_IMMUTABLE
+                PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
             )
 
             val deliveredIntent = PendingIntent.getBroadcast(
                 context,
                 0,
                 Intent(ACTION_SMS_DELIVERED),
-                PendingIntent.FLAG_IMMUTABLE
+                PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
             )
 
-            // Register receivers for sent and delivered status
-            registerSmsStatusReceivers(context)
+            // Register receivers for sent and delivered status (one-time use)
+            val sentReceiver = object : BroadcastReceiver() {
+                override fun onReceive(ctx: Context?, intent: Intent?) {
+                    when (resultCode) {
+                        android.app.Activity.RESULT_OK -> {
+                            Toast.makeText(context, "Message sent", Toast.LENGTH_SHORT).show()
+                        }
+                        SmsManager.RESULT_ERROR_GENERIC_FAILURE -> {
+                            Toast.makeText(context, "Failed to send SMS", Toast.LENGTH_SHORT).show()
+                        }
+                        SmsManager.RESULT_ERROR_NO_SERVICE -> {
+                            Toast.makeText(context, "No service", Toast.LENGTH_SHORT).show()
+                        }
+                        SmsManager.RESULT_ERROR_NULL_PDU -> {
+                            Toast.makeText(context, "Null PDU", Toast.LENGTH_SHORT).show()
+                        }
+                        SmsManager.RESULT_ERROR_RADIO_OFF -> {
+                            Toast.makeText(context, "Radio off", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    try {
+                        context.unregisterReceiver(this)
+                    } catch (e: IllegalArgumentException) {
+                        // Receiver already unregistered
+                    }
+                }
+            }
+
+            val deliveredReceiver = object : BroadcastReceiver() {
+                override fun onReceive(ctx: Context?, intent: Intent?) {
+                    when (resultCode) {
+                        android.app.Activity.RESULT_OK -> {
+                            Toast.makeText(context, "Message delivered", Toast.LENGTH_SHORT).show()
+                        }
+                        android.app.Activity.RESULT_CANCELED -> {
+                            Toast.makeText(context, "SMS not delivered", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    try {
+                        context.unregisterReceiver(this)
+                    } catch (e: IllegalArgumentException) {
+                        // Receiver already unregistered
+                    }
+                }
+            }
+
+            context.registerReceiver(sentReceiver, IntentFilter(ACTION_SMS_SENT), Context.RECEIVER_NOT_EXPORTED)
+            context.registerReceiver(deliveredReceiver, IntentFilter(ACTION_SMS_DELIVERED), Context.RECEIVER_NOT_EXPORTED)
 
             // Split message if it's too long (standard SMS is 160 characters)
             val parts = smsManager.divideMessage(message)
@@ -81,50 +128,11 @@ object SmsHelper {
                     deliveredIntents
                 )
             }
+
+            Log.d("SmsHelper", "SMS sending initiated to $recipient")
         } catch (e: Exception) {
+            Log.e("SmsHelper", "Failed to send SMS", e)
             Toast.makeText(context, "Failed to send SMS: ${e.message}", Toast.LENGTH_SHORT).show()
         }
-    }
-
-    private fun registerSmsStatusReceivers(context: Context) {
-        // Register sent status receiver
-        val sentReceiver = object : BroadcastReceiver() {
-            override fun onReceive(context: Context?, intent: Intent?) {
-                when (resultCode) {
-                    android.app.Activity.RESULT_OK -> {
-                        // SMS sent successfully
-                    }
-                    SmsManager.RESULT_ERROR_GENERIC_FAILURE -> {
-                        Toast.makeText(context, "Failed to send SMS", Toast.LENGTH_SHORT).show()
-                    }
-                    SmsManager.RESULT_ERROR_NO_SERVICE -> {
-                        Toast.makeText(context, "No service", Toast.LENGTH_SHORT).show()
-                    }
-                    SmsManager.RESULT_ERROR_NULL_PDU -> {
-                        Toast.makeText(context, "Null PDU", Toast.LENGTH_SHORT).show()
-                    }
-                    SmsManager.RESULT_ERROR_RADIO_OFF -> {
-                        Toast.makeText(context, "Radio off", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }
-        }
-
-        // Register delivered status receiver
-        val deliveredReceiver = object : BroadcastReceiver() {
-            override fun onReceive(context: Context?, intent: Intent?) {
-                when (resultCode) {
-                    android.app.Activity.RESULT_OK -> {
-                        // SMS delivered successfully
-                    }
-                    android.app.Activity.RESULT_CANCELED -> {
-                        Toast.makeText(context, "SMS not delivered", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }
-        }
-
-        context.registerReceiver(sentReceiver, IntentFilter(ACTION_SMS_SENT), Context.RECEIVER_NOT_EXPORTED)
-        context.registerReceiver(deliveredReceiver, IntentFilter(ACTION_SMS_DELIVERED), Context.RECEIVER_NOT_EXPORTED)
     }
 }

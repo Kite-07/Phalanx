@@ -5,7 +5,9 @@
       "Bash(java -version)",
       "Bash(where java)",
       "Bash(where javac)",
-      "Bash(dir \"C:\\Program Files\\Java\\jdk-25\\bin\\java.exe\")"
+      "Bash(dir \"C:\\Program Files\\Java\\jdk-25\\bin\\java.exe\")",
+      "Bash(gradlew.bat assembleDebug)",
+      "Bash(Select-Object -First 100)"
     ],
     "deny": [],
     "ask": []

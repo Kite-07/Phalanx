@@ -49,6 +49,7 @@
             </intent-filter>
         </activity>
         <activity android:name="com.kite.phalanx.SmsDetailActivity" />
+        <activity android:name="com.kite.phalanx.ContactPickerActivity" />
 
         <!-- SMS Receiver for incoming messages -->
         <receiver

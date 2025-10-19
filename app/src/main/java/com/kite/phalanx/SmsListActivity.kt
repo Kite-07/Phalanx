@@ -22,6 +22,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
@@ -106,12 +107,12 @@ class SmsListActivity : ComponentActivity() {
         setContent {
             PhalanxTheme {
                 var smsList by remember { mutableStateOf<List<SmsMessage>>(emptyList()) }
-                var showNewMessageDialog by remember { mutableStateOf(false) }
                 var showDefaultSmsDialog by remember { mutableStateOf(false) }
                 var searchQuery by remember { mutableStateOf("") }
                 var isSearching by remember { mutableStateOf(false) }
                 var selectedThreads by remember { mutableStateOf<Set<String>>(emptySet()) }
                 val isSelectionMode = selectedThreads.isNotEmpty()
+                var showDeleteConfirmDialog by remember { mutableStateOf(false) }
                 val context = LocalContext.current
                 val lifecycleOwner = this@SmsListActivity
                 val coroutineScope = rememberCoroutineScope()
@@ -236,7 +237,8 @@ class SmsListActivity : ComponentActivity() {
                     } else {
                         smsList.filter { sms ->
                             sms.sender.contains(searchQuery, ignoreCase = true) ||
-                                    sms.body.contains(searchQuery, ignoreCase = true)
+                                    sms.body.contains(searchQuery, ignoreCase = true) ||
+                                    (sms.contactName?.contains(searchQuery, ignoreCase = true) == true)
                         }
                     }
                 }
@@ -296,13 +298,7 @@ class SmsListActivity : ComponentActivity() {
                                         )
                                     }
                                     IconButton(onClick = {
-                                        coroutineScope.launch {
-                                            selectedThreads.forEach { sender ->
-                                                SmsOperations.deleteThread(context, sender)
-                                            }
-                                            selectedThreads = emptySet()
-                                            refreshSmsList()
-                                        }
+                                        showDeleteConfirmDialog = true
                                     }) {
                                         Icon(Icons.Default.Delete, contentDescription = "Delete")
                                     }
@@ -319,7 +315,10 @@ class SmsListActivity : ComponentActivity() {
                     },
                     floatingActionButton = {
                         FloatingActionButton(
-                            onClick = { showNewMessageDialog = true }
+                            onClick = {
+                                val intent = Intent(context, ContactPickerActivity::class.java)
+                                context.startActivity(intent)
+                            }
                         ) {
                             Icon(Icons.Default.Add, contentDescription = "New Message")
                         }
@@ -350,18 +349,6 @@ class SmsListActivity : ComponentActivity() {
                             }
                         },
                         modifier = Modifier.padding(innerPadding)
-                    )
-                }
-
-                if (showNewMessageDialog) {
-                    NewMessageDialog(
-                        onDismiss = { showNewMessageDialog = false },
-                        onStartConversation = { recipient ->
-                            showNewMessageDialog = false
-                            val intent = Intent(context, SmsDetailActivity::class.java)
-                            intent.putExtra("sender", recipient)
-                            context.startActivity(intent)
-                        }
                     )
                 }
 
@@ -398,6 +385,23 @@ class SmsListActivity : ComponentActivity() {
                                 }
                             }
                         }
+                    )
+                }
+
+                if (showDeleteConfirmDialog) {
+                    DeleteConfirmDialog(
+                        threadCount = selectedThreads.size,
+                        onConfirm = {
+                            showDeleteConfirmDialog = false
+                            coroutineScope.launch {
+                                selectedThreads.forEach { sender ->
+                                    SmsOperations.deleteThread(context, sender)
+                                }
+                                selectedThreads = emptySet()
+                                refreshSmsList()
+                            }
+                        },
+                        onDismiss = { showDeleteConfirmDialog = false }
                     )
                 }
             }
@@ -437,6 +441,7 @@ class SmsListActivity : ComponentActivity() {
                 val messageType = it.getInt(indexType)
                 val contactPhotoUri =
                     if (hasContactPermission()) lookupContactPhotoUri(address) else null
+                val contactName = lookupContactName(address)
                 val unreadCount = SmsOperations.getUnreadCount(this, address)
 
                 latestByAddress[address] = SmsMessage(
@@ -445,7 +450,8 @@ class SmsListActivity : ComponentActivity() {
                     timestamp = timestamp,
                     isSentByUser = isUserMessage(messageType),
                     contactPhotoUri = contactPhotoUri,
-                    unreadCount = unreadCount
+                    unreadCount = unreadCount,
+                    contactName = contactName
                 )
             }
         }
@@ -474,6 +480,32 @@ class SmsListActivity : ComponentActivity() {
             )?.use { cursor ->
                 if (cursor.moveToFirst()) {
                     cursor.getString(0)?.takeIf { it.isNotBlank() }?.let { Uri.parse(it) }
+                } else {
+                    null
+                }
+            }
+        } catch (securityException: SecurityException) {
+            null
+        }
+    }
+
+    private fun lookupContactName(phoneNumber: String): String? {
+        if (!hasContactPermission()) return null
+
+        val lookupUri = Uri.withAppendedPath(
+            ContactsContract.PhoneLookup.CONTENT_FILTER_URI,
+            Uri.encode(phoneNumber)
+        )
+        return try {
+            contentResolver.query(
+                lookupUri,
+                arrayOf(ContactsContract.PhoneLookup.DISPLAY_NAME),
+                null,
+                null,
+                null
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    cursor.getString(0)?.takeIf { it.isNotBlank() }
                 } else {
                     null
                 }
@@ -573,7 +605,7 @@ fun SmsCard(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = sms.sender,
+                        text = sms.contactName ?: sms.sender,
                         style = MaterialTheme.typography.titleMedium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -649,45 +681,6 @@ private suspend fun loadContactPhotoBitmap(
 }
 
 @Composable
-fun NewMessageDialog(
-    onDismiss: () -> Unit,
-    onStartConversation: (String) -> Unit
-) {
-    var recipient by remember { mutableStateOf("") }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("New Message") },
-        text = {
-            OutlinedTextField(
-                value = recipient,
-                onValueChange = { recipient = it },
-                label = { Text("Phone Number") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    if (recipient.isNotBlank()) {
-                        onStartConversation(recipient.trim())
-                    }
-                },
-                enabled = recipient.isNotBlank()
-            ) {
-                Text("Start")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
-            }
-        }
-    )
-}
-
-@Composable
 fun DefaultSmsDialog(
     onDismiss: () -> Unit,
     onSetAsDefault: (Boolean) -> Unit,
@@ -723,6 +716,37 @@ fun DefaultSmsDialog(
         dismissButton = {
             TextButton(onClick = { onCancel(dontAskAgain) }) {
                 Text("Not Now")
+            }
+        }
+    )
+}
+
+@Composable
+fun DeleteConfirmDialog(
+    threadCount: Int,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Delete Conversation${if (threadCount > 1) "s" else ""}?") },
+        text = {
+            Text(
+                if (threadCount > 1) {
+                    "Are you sure you want to delete $threadCount conversations? This action cannot be undone."
+                } else {
+                    "Are you sure you want to delete this conversation? This action cannot be undone."
+                }
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text("Delete")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
             }
         }
     )
