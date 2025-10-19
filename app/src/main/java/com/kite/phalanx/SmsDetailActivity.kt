@@ -2,10 +2,18 @@ package com.kite.phalanx
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.database.ContentObserver
+import android.graphics.BitmapFactory
+import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.provider.ContactsContract
 import android.provider.Telephony
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -18,6 +26,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -25,6 +34,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MailOutline
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -39,11 +49,26 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -53,10 +78,29 @@ import java.util.Date
 import java.util.Locale
 
 class SmsDetailActivity : ComponentActivity() {
+
+    companion object {
+        init {
+            Log.e("SmsDetailActivity", "========== COMPANION OBJECT STATIC INIT ==========")
+            android.util.Log.wtf("SmsDetailActivity", "CLASS LOADED")
+        }
+    }
+
+    init {
+        Log.e("SmsDetailActivity", "========== INSTANCE INIT BLOCK ==========")
+        android.util.Log.wtf("SmsDetailActivity", "INSTANCE CREATED")
+    }
+
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
+        Log.e("SmsDetailActivity", "========== onCreate START ==========")
+        android.util.Log.wtf("SmsDetailActivity", "onCreate called")
         super.onCreate(savedInstanceState)
+        Log.e("SmsDetailActivity", "onCreate after super")
         val sender = intent.getStringExtra("sender") ?: "Unknown Sender"
+
+        Log.d("SmsDetailActivity", "onCreate called - sender: $sender")
+        Log.d("SmsDetailActivity", "Intent action: ${intent.action}, data: ${intent.data}")
 
         // Mark messages as read when opening conversation
         SmsOperations.markAsRead(this, sender)
@@ -64,16 +108,92 @@ class SmsDetailActivity : ComponentActivity() {
         NotificationHelper.cancelNotification(this, sender)
 
         setContent {
+            Log.d("SmsDetailActivity", "setContent called")
             PhalanxTheme {
                 var messages by remember { mutableStateOf(readSmsMessages(sender)) }
+                var refreshTrigger by remember { mutableStateOf(0) }
+                val scope = rememberCoroutineScope()
+
+                // Refresh messages when trigger changes
+                LaunchedEffect(refreshTrigger) {
+                    if (refreshTrigger > 0) {
+                        messages = readSmsMessages(sender)
+                    }
+                }
+
+                // Observe SMS database changes
+                DisposableEffect(Unit) {
+                    val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+                        override fun onChange(selfChange: Boolean) {
+                            scope.launch {
+                                android.util.Log.d("SmsDetailActivity", "SMS database changed, refreshing")
+                                messages = readSmsMessages(sender)
+                            }
+                        }
+                    }
+
+                    contentResolver.registerContentObserver(
+                        Telephony.Sms.CONTENT_URI,
+                        true,
+                        observer
+                    )
+
+                    onDispose {
+                        contentResolver.unregisterContentObserver(observer)
+                    }
+                }
+
+                // Load saved draft
+                val savedDraft by remember {
+                    try {
+                        DraftsManager.getDraft(this@SmsDetailActivity, sender)
+                    } catch (e: Exception) {
+                        kotlinx.coroutines.flow.flowOf("")
+                    }
+                }.collectAsState(initial = "")
+
                 var messageText by remember { mutableStateOf("") }
                 var showMenu by remember { mutableStateOf(false) }
                 var showDeleteConfirmDialog by remember { mutableStateOf(false) }
 
+                // Restore draft when screen opens
+                LaunchedEffect(savedDraft) {
+                    if (savedDraft.isNotBlank() && messageText.isBlank()) {
+                        messageText = savedDraft
+                    }
+                }
+
+                // Load contact info for the sender asynchronously
+                val contactName by produceState<String?>(initialValue = null, sender) {
+                    value = withContext(Dispatchers.IO) {
+                        try {
+                            lookupContactName(sender)
+                        } catch (e: Exception) {
+                            Log.e("SmsDetailActivity", "Error loading contact name", e)
+                            null
+                        }
+                    }
+                }
+                val displayName = contactName ?: sender
+
+                val contactPhoto by produceState<ImageBitmap?>(initialValue = null, sender) {
+                    value = try {
+                        loadContactPhoto(sender)
+                    } catch (e: Exception) {
+                        Log.e("SmsDetailActivity", "Error loading contact photo", e)
+                        null
+                    }
+                }
+
                 Scaffold(
                     topBar = {
                         TopAppBar(
-                            title = { Text(text = sender) },
+                            title = {
+                                ContactTitle(
+                                    displayName = displayName,
+                                    contactPhoto = contactPhoto
+                                )
+                            },
                             navigationIcon = {
                                 IconButton(onClick = { finish() }) {
                                     Icon(
@@ -90,27 +210,30 @@ class SmsDetailActivity : ComponentActivity() {
                                     expanded = showMenu,
                                     onDismissRequest = { showMenu = false }
                                 ) {
-                                    DropdownMenuItem(
-                                        text = { Text("Mark as unread") },
-                                        onClick = {
-                                            showMenu = false
-                                            SmsOperations.markAsUnread(this@SmsDetailActivity, sender)
-                                            finish()
-                                        },
-                                        leadingIcon = {
-                                            Icon(Icons.Default.MailOutline, contentDescription = null)
-                                        }
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Delete conversation") },
-                                        onClick = {
-                                            showMenu = false
-                                            showDeleteConfirmDialog = true
-                                        },
-                                        leadingIcon = {
-                                            Icon(Icons.Default.Delete, contentDescription = null)
-                                        }
-                                    )
+                                    // Only show these menu items if there are messages in the conversation
+                                    if (messages.isNotEmpty()) {
+                                        DropdownMenuItem(
+                                            text = { Text("Mark as unread") },
+                                            onClick = {
+                                                showMenu = false
+                                                SmsOperations.markAsUnread(this@SmsDetailActivity, sender)
+                                                finish()
+                                            },
+                                            leadingIcon = {
+                                                Icon(Icons.Default.MailOutline, contentDescription = null)
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Delete conversation") },
+                                            onClick = {
+                                                showMenu = false
+                                                showDeleteConfirmDialog = true
+                                            },
+                                            leadingIcon = {
+                                                Icon(Icons.Default.Delete, contentDescription = null)
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         )
@@ -118,17 +241,46 @@ class SmsDetailActivity : ComponentActivity() {
                     bottomBar = {
                         MessageComposer(
                             message = messageText,
-                            onMessageChange = { messageText = it },
+                            onMessageChange = { newText ->
+                                messageText = newText
+                                // Auto-save draft
+                                scope.launch {
+                                    try {
+                                        DraftsManager.saveDraft(this@SmsDetailActivity, sender, newText)
+                                    } catch (e: Exception) {
+                                        android.util.Log.e("SmsDetailActivity", "Error saving draft", e)
+                                    }
+                                }
+                            },
                             onSendClick = {
+                                android.util.Log.d("SmsDetailActivity", "Send button clicked, messageText: '${messageText}'")
                                 if (messageText.isNotBlank()) {
-                                    SmsHelper.sendSms(
-                                        context = this,
-                                        recipient = sender,
-                                        message = messageText
-                                    )
+                                    val messageToSend = messageText
+                                    android.util.Log.d("SmsDetailActivity", "About to call SmsHelper.sendSms - recipient: $sender, message: $messageToSend")
+                                    try {
+                                        SmsHelper.sendSms(
+                                            context = this@SmsDetailActivity,
+                                            recipient = sender,
+                                            message = messageToSend
+                                        )
+                                        android.util.Log.d("SmsDetailActivity", "SmsHelper.sendSms returned")
+                                    } catch (e: Exception) {
+                                        android.util.Log.e("SmsDetailActivity", "Exception calling SmsHelper.sendSms", e)
+                                    }
                                     messageText = ""
-                                    // Refresh messages after sending
-                                    messages = readSmsMessages(sender)
+                                    // Delete draft after sending
+                                    scope.launch {
+                                        try {
+                                            DraftsManager.deleteDraft(this@SmsDetailActivity, sender)
+                                        } catch (e: Exception) {
+                                            android.util.Log.e("SmsDetailActivity", "Error deleting draft", e)
+                                        }
+                                    }
+                                    // Refresh messages after a short delay to allow database write
+                                    scope.launch {
+                                        kotlinx.coroutines.delay(500) // Wait for DB write
+                                        refreshTrigger++
+                                    }
                                 }
                             }
                         )
@@ -149,6 +301,14 @@ class SmsDetailActivity : ComponentActivity() {
                             TextButton(onClick = {
                                 showDeleteConfirmDialog = false
                                 if (SmsOperations.deleteThread(this@SmsDetailActivity, sender)) {
+                                    // Also delete the draft
+                                    scope.launch {
+                                        try {
+                                            DraftsManager.deleteDraft(this@SmsDetailActivity, sender)
+                                        } catch (e: Exception) {
+                                            android.util.Log.e("SmsDetailActivity", "Error deleting draft on thread delete", e)
+                                        }
+                                    }
                                     finish()
                                 }
                             }) {
@@ -210,6 +370,114 @@ class SmsDetailActivity : ComponentActivity() {
             }
         }
         return smsList
+    }
+
+    private fun hasContactPermission(): Boolean =
+        ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.READ_CONTACTS
+        ) == PackageManager.PERMISSION_GRANTED
+
+    private fun lookupContactPhotoUri(phoneNumber: String): Uri? {
+        if (!hasContactPermission()) return null
+
+        val lookupUri = Uri.withAppendedPath(
+            ContactsContract.PhoneLookup.CONTENT_FILTER_URI,
+            Uri.encode(phoneNumber)
+        )
+        return try {
+            contentResolver.query(
+                lookupUri,
+                arrayOf(ContactsContract.PhoneLookup.PHOTO_URI),
+                null,
+                null,
+                null
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    cursor.getString(0)?.takeIf { it.isNotBlank() }?.let { Uri.parse(it) }
+                } else {
+                    null
+                }
+            }
+        } catch (securityException: SecurityException) {
+            null
+        }
+    }
+
+    private fun lookupContactName(phoneNumber: String): String? {
+        if (!hasContactPermission()) return null
+
+        val lookupUri = Uri.withAppendedPath(
+            ContactsContract.PhoneLookup.CONTENT_FILTER_URI,
+            Uri.encode(phoneNumber)
+        )
+        return try {
+            contentResolver.query(
+                lookupUri,
+                arrayOf(ContactsContract.PhoneLookup.DISPLAY_NAME),
+                null,
+                null,
+                null
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    cursor.getString(0)?.takeIf { it.isNotBlank() }
+                } else {
+                    null
+                }
+            }
+        } catch (securityException: SecurityException) {
+            null
+        }
+    }
+
+    private suspend fun loadContactPhoto(phoneNumber: String): ImageBitmap? {
+        val photoUri = lookupContactPhotoUri(phoneNumber) ?: return null
+        return withContext(Dispatchers.IO) {
+            try {
+                contentResolver.openInputStream(photoUri)?.use { stream ->
+                    BitmapFactory.decodeStream(stream)?.asImageBitmap()
+                }
+            } catch (e: Exception) {
+                null
+            }
+        }
+    }
+}
+
+@Composable
+fun ContactTitle(displayName: String, contactPhoto: ImageBitmap?) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        // Contact photo
+        if (contactPhoto != null) {
+            Image(
+                bitmap = contactPhoto,
+                contentDescription = "Contact photo",
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape),
+                contentScale = ContentScale.Crop
+            )
+        } else {
+            // Default avatar icon
+            Surface(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape),
+                color = MaterialTheme.colorScheme.primaryContainer
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Person,
+                    contentDescription = "Default avatar",
+                    modifier = Modifier.padding(8.dp),
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        Text(text = displayName)
     }
 }
 
@@ -348,7 +616,10 @@ fun MessageComposer(
                 }
                 Spacer(modifier = Modifier.width(8.dp))
                 IconButton(
-                    onClick = onSendClick,
+                    onClick = {
+                        android.util.Log.d("MessageComposer", "IconButton clicked, message: '$message', isNotBlank: ${message.isNotBlank()}")
+                        onSendClick()
+                    },
                     enabled = message.isNotBlank(),
                     modifier = Modifier.size(48.dp)
                 ) {

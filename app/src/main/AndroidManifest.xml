@@ -48,7 +48,9 @@
                 <data android:scheme="mmsto" />
             </intent-filter>
         </activity>
-        <activity android:name="com.kite.phalanx.SmsDetailActivity" />
+        <activity
+            android:name="com.kite.phalanx.SmsDetailActivity"
+            android:exported="false" />
         <activity android:name="com.kite.phalanx.ContactPickerActivity" />
 
         <!-- SMS Receiver for incoming messages -->

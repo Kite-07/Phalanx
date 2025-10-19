@@ -25,11 +25,16 @@ object NotificationHelper {
     private const val CHANNEL_ID = "sms_messages"
     private const val CHANNEL_NAME = "SMS Messages"
     private const val NOTIFICATION_ID_BASE = 1000
+    private const val GROUP_KEY = "com.kite.phalanx.SMS_GROUP"
+    private const val SUMMARY_ID = 0
 
     const val ACTION_MARK_AS_READ = "com.kite.phalanx.MARK_AS_READ"
     const val ACTION_REPLY = "com.kite.phalanx.REPLY"
     const val EXTRA_SENDER = "sender"
     const val KEY_TEXT_REPLY = "key_text_reply"
+
+    // Track active notifications by sender
+    private val activeNotifications = mutableSetOf<String>()
 
     /**
      * Creates the notification channel for SMS messages (required for Android O+)
@@ -123,8 +128,11 @@ object NotificationHelper {
         // Load contact photo
         val largeIcon = loadContactPhoto(context, sender)
 
-        // Build notification
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+        // Add to active notifications
+        activeNotifications.add(sender)
+
+        // Build individual notification
+        val notificationBuilder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setLargeIcon(largeIcon)
             .setContentTitle(sender)
@@ -140,12 +148,64 @@ object NotificationHelper {
                 "Mark as read",
                 markAsReadPendingIntent
             )
-            .addAction(replyAction)
-            .build()
+
+        // Only add reply action if there's a single active notification
+        // or all active notifications are from the same sender
+        if (activeNotifications.size == 1 || activeNotifications.all { it == sender }) {
+            notificationBuilder.addAction(replyAction)
+        }
+
+        // Add to group if multiple notifications exist
+        if (activeNotifications.size > 1) {
+            notificationBuilder.setGroup(GROUP_KEY)
+        }
+
+        val notification = notificationBuilder.build()
 
         // Show notification
         val notificationManager = NotificationManagerCompat.from(context)
         notificationManager.notify(sender.hashCode(), notification)
+
+        // Show summary notification if there are multiple notifications
+        if (activeNotifications.size > 1) {
+            showSummaryNotification(context)
+        }
+    }
+
+    /**
+     * Shows a summary notification for grouped messages
+     */
+    private fun showSummaryNotification(context: Context) {
+        val summaryText = if (activeNotifications.size == 1) {
+            "1 new message"
+        } else {
+            "${activeNotifications.size} new messages"
+        }
+
+        // Create intent to open main activity
+        val intent = Intent(context, SmsListActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            SUMMARY_ID,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val summaryNotification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle("Phalanx")
+            .setContentText(summaryText)
+            .setGroup(GROUP_KEY)
+            .setGroupSummary(true)
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+            .build()
+
+        val notificationManager = NotificationManagerCompat.from(context)
+        notificationManager.notify(SUMMARY_ID, summaryNotification)
     }
 
     /**
@@ -198,6 +258,7 @@ object NotificationHelper {
     fun cancelAllNotifications(context: Context) {
         val notificationManager = NotificationManagerCompat.from(context)
         notificationManager.cancelAll()
+        activeNotifications.clear()
     }
 
     /**
@@ -206,5 +267,16 @@ object NotificationHelper {
     fun cancelNotification(context: Context, sender: String) {
         val notificationManager = NotificationManagerCompat.from(context)
         notificationManager.cancel(sender.hashCode())
+        activeNotifications.remove(sender)
+
+        // Update or remove summary notification
+        if (activeNotifications.isEmpty()) {
+            notificationManager.cancel(SUMMARY_ID)
+        } else if (activeNotifications.size > 1) {
+            showSummaryNotification(context)
+        } else {
+            // Only one notification left, remove grouping
+            notificationManager.cancel(SUMMARY_ID)
+        }
     }
 }

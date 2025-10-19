@@ -31,7 +31,7 @@ Inbox & Threads
 Contacts
 
 * Contact sync (read-only).  
-* Unknown numbers show number \+ country code flag. Use a placeholder image for profile pictures.
+* $$Unknown numbers show number \+ country code flag. Use a placeholder image for profile pictures.
 
 Notifications
 
@@ -40,15 +40,15 @@ Notifications
 
 Dual SIM
 
-* SIM selector on composer.  
-* SIM badges in thread list and bubbles.  
+* SIM selector on composer.
+* SIM badges in thread list and bubbles.
 * Per-SIM defaults (e.g., SIM1 for personal, SIM2 for work).
 
 Message Management
 
 * Mark read/unread (thread and message).  
-* Delete single message or entire thread (confirm dialog).  
-* Spam blocking: block number; move to Spam folder.
+* $$Delete single message or entire thread (confirm dialog).  
+* $$Spam blocking: block number; move to Spam folder.
 
 Settings
 

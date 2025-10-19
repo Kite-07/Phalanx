@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Done
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
@@ -49,6 +50,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -89,6 +91,7 @@ import java.util.LinkedHashMap
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
 private val DONT_ASK_DEFAULT_SMS = booleanPreferencesKey("dont_ask_default_sms")
 
+// WRITE_SMS and RECEIVE_SMS are automatically granted to default SMS app, don't request them
 private val REQUIRED_PERMISSIONS = arrayOf(
     Manifest.permission.READ_SMS,
     Manifest.permission.SEND_SMS,
@@ -126,10 +129,7 @@ class SmsListActivity : ComponentActivity() {
                             ) == PackageManager.PERMISSION_GRANTED
                         ) {
                             coroutineScope.launch {
-                                val messages = withContext(Dispatchers.IO) {
-                                    readSmsMessages()
-                                }
-                                smsList = messages
+                                smsList = readSmsMessages()
                             }
                         }
                     }
@@ -408,55 +408,72 @@ class SmsListActivity : ComponentActivity() {
         }
     }
 
-    private fun readSmsMessages(): List<SmsMessage> {
-        val projection = arrayOf(
-            Telephony.Sms.ADDRESS,
-            Telephony.Sms.BODY,
-            Telephony.Sms.DATE,
-            Telephony.Sms.TYPE
-        )
+    private suspend fun readSmsMessages(): List<SmsMessage> = withContext(Dispatchers.IO) {
+        try {
+            val projection = arrayOf(
+                Telephony.Sms.ADDRESS,
+                Telephony.Sms.BODY,
+                Telephony.Sms.DATE,
+                Telephony.Sms.TYPE
+            )
 
-        val cursor = contentResolver.query(
-            Telephony.Sms.CONTENT_URI,
-            projection,
-            null,
-            null,
-            "${Telephony.Sms.DATE} DESC"
-        )
+            val cursor = contentResolver.query(
+                Telephony.Sms.CONTENT_URI,
+                projection,
+                null,
+                null,
+                "${Telephony.Sms.DATE} DESC"
+            )
 
-        val latestByAddress = LinkedHashMap<String, SmsMessage>()
-        cursor?.use {
-            val indexAddress = it.getColumnIndex(Telephony.Sms.ADDRESS)
-            val indexBody = it.getColumnIndex(Telephony.Sms.BODY)
-            val indexDate = it.getColumnIndex(Telephony.Sms.DATE)
-            val indexType = it.getColumnIndex(Telephony.Sms.TYPE)
+            val latestByAddress = LinkedHashMap<String, SmsMessage>()
+            cursor?.use {
+                val indexAddress = it.getColumnIndex(Telephony.Sms.ADDRESS)
+                val indexBody = it.getColumnIndex(Telephony.Sms.BODY)
+                val indexDate = it.getColumnIndex(Telephony.Sms.DATE)
+                val indexType = it.getColumnIndex(Telephony.Sms.TYPE)
 
-            while (it.moveToNext()) {
-                val address = it.getString(indexAddress)?.takeIf { addr -> addr.isNotBlank() }
-                    ?: continue
-                if (latestByAddress.containsKey(address)) continue
+                while (it.moveToNext()) {
+                    try {
+                        val address = it.getString(indexAddress)?.takeIf { addr -> addr.isNotBlank() }
+                            ?: continue
+                        if (latestByAddress.containsKey(address)) continue
 
-                val body = it.getString(indexBody).orEmpty()
-                val timestamp = it.getLong(indexDate)
-                val messageType = it.getInt(indexType)
-                val contactPhotoUri =
-                    if (hasContactPermission()) lookupContactPhotoUri(address) else null
-                val contactName = lookupContactName(address)
-                val unreadCount = SmsOperations.getUnreadCount(this, address)
+                        val body = it.getString(indexBody).orEmpty()
+                        val timestamp = it.getLong(indexDate)
+                        val messageType = it.getInt(indexType)
+                        val contactPhotoUri =
+                            if (hasContactPermission()) lookupContactPhotoUri(address) else null
+                        val contactName = lookupContactName(address)
+                        val unreadCount = SmsOperations.getUnreadCount(this@SmsListActivity, address)
+                        val draftText = try {
+                            DraftsManager.getDraftSync(this@SmsListActivity, address)
+                        } catch (e: Exception) {
+                            Log.e("SmsListActivity", "Error loading draft for $address", e)
+                            null
+                        }
 
-                latestByAddress[address] = SmsMessage(
-                    sender = address,
-                    body = body,
-                    timestamp = timestamp,
-                    isSentByUser = isUserMessage(messageType),
-                    contactPhotoUri = contactPhotoUri,
-                    unreadCount = unreadCount,
-                    contactName = contactName
-                )
+                        latestByAddress[address] = SmsMessage(
+                            sender = address,
+                            body = body,
+                            timestamp = timestamp,
+                            isSentByUser = isUserMessage(messageType),
+                            contactPhotoUri = contactPhotoUri,
+                            unreadCount = unreadCount,
+                            contactName = contactName,
+                            draftText = draftText
+                        )
+                    } catch (e: Exception) {
+                        Log.e("SmsListActivity", "Error processing SMS message", e)
+                        continue
+                    }
+                }
             }
-        }
 
-        return latestByAddress.values.sortedByDescending { it.timestamp }
+            return@withContext latestByAddress.values.sortedByDescending { it.timestamp }
+        } catch (e: Exception) {
+            Log.e("SmsListActivity", "Error reading SMS messages", e)
+            return@withContext emptyList()
+        }
     }
 
     private fun hasContactPermission(): Boolean =
@@ -551,12 +568,17 @@ fun SmsCard(
     onLongClick: () -> Unit
 ) {
     val timeFormatter = remember { SimpleDateFormat("h:mm a", Locale.getDefault()) }
-    val previewText = remember(sms.body, sms.isSentByUser) {
-        val trimmed = sms.body.trim()
-        if (sms.isSentByUser && trimmed.isNotEmpty()) {
-            "You: $trimmed"
+    val previewText = remember(sms.body, sms.isSentByUser, sms.draftText) {
+        // Show draft if it exists
+        if (!sms.draftText.isNullOrBlank()) {
+            "Draft: ${sms.draftText.trim()}"
         } else {
-            trimmed
+            val trimmed = sms.body.trim()
+            if (sms.isSentByUser && trimmed.isNotEmpty()) {
+                "You: $trimmed"
+            } else {
+                trimmed
+            }
         }
     }
 
@@ -623,12 +645,21 @@ fun SmsCard(
                         MaterialTheme.typography.bodyMedium.copy(
                             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                         )
+                    } else if (!sms.draftText.isNullOrBlank()) {
+                        // Draft text in italic
+                        MaterialTheme.typography.bodyMedium.copy(
+                            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+                        )
                     } else {
                         MaterialTheme.typography.bodyMedium
                     },
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = if (!sms.draftText.isNullOrBlank()) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    }
                 )
             }
         }
@@ -654,12 +685,18 @@ private fun ContactAvatar(
             contentScale = ContentScale.Crop
         )
     } else {
-        Image(
-            painter = painterResource(id = R.drawable.ic_launcher_foreground),
-            contentDescription = contentDescription,
+        // Default avatar icon - same style as SmsDetailActivity
+        Surface(
             modifier = modifier,
-            contentScale = ContentScale.Crop
-        )
+            color = MaterialTheme.colorScheme.primaryContainer
+        ) {
+            Icon(
+                imageVector = Icons.Default.Person,
+                contentDescription = contentDescription,
+                modifier = Modifier.padding(8.dp),
+                tint = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+        }
     }
 }
 
