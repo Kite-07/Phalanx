@@ -2,7 +2,21 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- SMS permissions -->
     <uses-permission android:name="android.permission.READ_SMS" />
+    <uses-permission android:name="android.permission.WRITE_SMS" />
+    <uses-permission android:name="android.permission.SEND_SMS" />
+    <uses-permission android:name="android.permission.RECEIVE_SMS" />
+    <uses-permission android:name="android.permission.RECEIVE_MMS" />
+
+    <!-- Contact permissions -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+
+    <!-- Phone state for dual SIM support -->
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+
+    <!-- Notification permissions for Android 13+ -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:allowBackup="true"
@@ -13,7 +27,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true">
         <activity
-            android:name=".SmsListActivity"
+            android:name="com.kite.phalanx.SmsListActivity"
             android:exported="true"
             android:label="@string/app_name">
             <intent-filter>
@@ -21,8 +35,66 @@
 
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
+            <!-- Intent filter to handle SMS_DELIVER action (required for default SMS app) -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SENDTO" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="sms" />
+                <data android:scheme="smsto" />
+                <data android:scheme="mms" />
+                <data android:scheme="mmsto" />
+            </intent-filter>
         </activity>
-        <activity android:name=".SmsDetailActivity" />
+        <activity android:name="com.kite.phalanx.SmsDetailActivity" />
+
+        <!-- SMS Receiver for incoming messages -->
+        <receiver
+            android:name="com.kite.phalanx.SmsReceiver"
+            android:exported="true"
+            android:permission="android.permission.BROADCAST_SMS">
+            <intent-filter android:priority="999">
+                <action android:name="android.provider.Telephony.SMS_DELIVER" />
+            </intent-filter>
+        </receiver>
+
+        <!-- MMS Receiver (required for default SMS app) -->
+        <receiver
+            android:name="com.kite.phalanx.MmsReceiver"
+            android:exported="true"
+            android:permission="android.permission.BROADCAST_WAP_PUSH">
+            <intent-filter>
+                <action android:name="android.provider.Telephony.WAP_PUSH_DELIVER" />
+                <data android:mimeType="application/vnd.wap.mms-message" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Service to respond to requests from other parts of the system (required for default SMS app) -->
+        <service
+            android:name="com.kite.phalanx.HeadlessSmsSendService"
+            android:permission="android.permission.SEND_RESPOND_VIA_MESSAGE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.RESPOND_VIA_MESSAGE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="sms" />
+                <data android:scheme="smsto" />
+                <data android:scheme="mms" />
+                <data android:scheme="mmsto" />
+            </intent-filter>
+        </service>
+
+        <!-- Notification Action Receiver for Mark as Read and Reply -->
+        <receiver
+            android:name="com.kite.phalanx.NotificationActionReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.kite.phalanx.MARK_AS_READ" />
+                <action android:name="com.kite.phalanx.REPLY" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>

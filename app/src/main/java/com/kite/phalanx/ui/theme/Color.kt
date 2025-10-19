@@ -1,4 +1,4 @@
-package com.example.phalanx.ui.theme
+package com.kite.phalanx.ui.theme
 
 import androidx.compose.ui.graphics.Color
 

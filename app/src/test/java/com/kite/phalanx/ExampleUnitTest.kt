@@ -1,4 +1,4 @@
-package com.example.phalanx
+package com.kite.phalanx
 
 import org.junit.Test
 

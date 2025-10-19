@@ -1,9 +1,18 @@
 # PRD — Phalanx
 
 ## 0) Product Context
-Build a privacy-first Android app that analyzes SMS messages locally to (1) reveal the **true destination** of links, (2) produce an **explainable risk score** (Green/Amber/Red), and (3) **notify only on issues**, with **Trash/Restore (30 days)**. No cloud processing. Must work as **Default SMS app** (full features) and **Assist Mode** (read-only overlay via Notification Listener) if user declines default role.
+Build a **full-featured SMS messaging app** for Android with privacy-first security features built on top. Core functionality includes sending and receiving SMS messages with a modern, intuitive interface. Security layer analyzes messages locally to (1) reveal the **true destination** of links, (2) produce an **explainable risk score** (Green/Amber/Red), and (3) **notify only on issues**, with **Trash/Restore (30 days)**. No cloud processing. Must work as **Default SMS app** (full messaging + security features) and **Assist Mode** (read-only security overlay via Notification Listener) if user declines default role.
 
 ## 1) Top-Level Requirements
+
+### Core Messaging Features
+- **Send/Receive SMS**: Full messaging capability with conversation threads
+- **Modern UI**: Clean, intuitive Compose interface for reading and composing messages
+- **Contact Integration**: Display contact names, photos, and metadata
+- **Multi-SIM Support**: Handle multiple SIM cards with per-SIM preferences
+- **Message Management**: Search, archive, delete, and organize conversations
+
+### Security Features (on top of core messaging)
 - Show final URL + **registered domain** under each SMS row.
 - Flag risks: shorteners, punycode/homoglyph, IP links, `http://`, userinfo in URL, non‑standard ports, suspicious paths (`/login`, `/verify`, `/reset`, `/prize`, `/otp`), sender–message mismatch (via region packs), basic grammar/anomaly signals.
 - Send notifications **only** for Amber/Red. Provide **Open Safely**, **Copy URL**, **Trash**, **Whitelist/Block**.
@@ -57,8 +66,30 @@ Weights are deterministic; sensitivity slider shifts thresholds, not weights.
 
 # PHASED BUILD ORDER
 
+## Phase 0 — Core Messaging App
+**Goal:** Build a fully-functional SMS messaging app with modern UI.
+
+**Deliverables**
+1. **Message Composer**: Text input with send functionality via SmsManager
+2. **Conversation Threading**: Group messages by sender into threads with proper sorting
+3. **Contact Integration**: Resolve phone numbers to contact names and photos
+4. **Message Receiving**: BroadcastReceiver for incoming SMS with notification handling
+5. **Multi-SIM Support**: Detect and use appropriate SIM slot for sending
+6. **Basic Management**: Delete messages, mark as read, search conversations
+
+**Acceptance**
+- Can send and receive SMS messages reliably
+- Messages appear in correct conversation threads
+- Contact names/photos display correctly
+- Notifications work for new incoming messages
+- App can be set as default SMS app
+
+**Dependencies:** Telephony APIs, Contacts Provider, NotificationManager
+
+---
+
 ## Phase 1 — Core Signals v0
-**Goal:** Create end‑to‑end pipeline producing verdicts from raw SMS text.
+**Goal:** Create end‑to‑end pipeline producing verdicts from raw SMS text (security layer on top of messaging).
 
 **Deliverables**
 1. **Link Extractor**: robust URL detection; Unicode normalize; detect scheme‑less URLs.  

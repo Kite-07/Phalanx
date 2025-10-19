@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./gradlew.bat assembleDebug)",
+      "Bash(java -version)",
+      "Bash(where java)",
+      "Bash(where javac)",
+      "Bash(dir \"C:\\Program Files\\Java\\jdk-25\\bin\\java.exe\")"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
