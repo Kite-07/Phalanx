@@ -39,8 +39,11 @@ object NotificationHelper {
     /**
      * Creates the notification channel for SMS messages (required for Android O+)
      */
-    fun createNotificationChannel(context: Context) {
+    suspend fun createNotificationChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            // Get user preference for bypassing DND
+            val bypassDnd = AppPreferences.getBypassDnd(context)
+
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 CHANNEL_NAME,
@@ -49,6 +52,14 @@ object NotificationHelper {
                 description = "Notifications for incoming SMS messages"
                 enableVibration(true)
                 enableLights(true)
+
+                // Only set bypass DND if user has enabled it and granted permission
+                if (bypassDnd) {
+                    val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                    if (notificationManager.isNotificationPolicyAccessGranted) {
+                        setBypassDnd(true)
+                    }
+                }
             }
 
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -59,12 +70,17 @@ object NotificationHelper {
     /**
      * Shows a notification for a new SMS message
      */
-    fun showMessageNotification(
+    suspend fun showMessageNotification(
         context: Context,
         sender: String,
         message: String,
         timestamp: Long
     ) {
+        // Check if conversation is muted
+        if (ConversationMutePreferences.isConversationMuted(context, sender)) {
+            return // Don't show notification if conversation is muted
+        }
+
         // Check for notification permission on Android 13+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(

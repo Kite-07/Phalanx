@@ -18,14 +18,18 @@
     <!-- Notification permissions for Android 13+ -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- Permission to bypass Do Not Disturb mode -->
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+
     <application
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
-        android.fullBackupContent="@xml/backup_rules"
+        android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
-        android:supportsRtl="true">
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Phalanx">
         <activity
             android:name="com.kite.phalanx.SmsListActivity"
             android:exported="true"
@@ -51,12 +55,20 @@
         <activity
             android:name="com.kite.phalanx.SmsDetailActivity"
             android:exported="false" />
-        <activity android:name="com.kite.phalanx.ContactPickerActivity" />
+        <activity
+            android:name="com.kite.phalanx.ContactPickerActivity"
+            android:exported="false" />
         <activity
             android:name="com.kite.phalanx.SpamListActivity"
             android:exported="false" />
         <activity
             android:name="com.kite.phalanx.SpamDetailActivity"
+            android:exported="false" />
+        <activity
+            android:name="com.kite.phalanx.SettingsActivity"
+            android:exported="false" />
+        <activity
+            android:name="com.kite.phalanx.ContactDetailActivity"
             android:exported="false" />
 
         <!-- SMS Receiver for incoming messages -->

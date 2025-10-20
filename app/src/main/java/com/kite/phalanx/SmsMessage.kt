@@ -11,7 +11,10 @@ data class SmsMessage(
     val contactPhotoUri: Uri? = null,
     val unreadCount: Int = 0,
     val contactName: String? = null,
-    val draftText: String? = null
+    val draftText: String? = null,
+    val subscriptionId: Int = -1, // SIM subscription ID, -1 if unknown
+    val isSeen: Boolean = true, // Whether message has been seen by user
+    val isRead: Boolean = true // Whether message has been read by user
 )
 
 internal fun isUserMessage(type: Int): Boolean = when (type) {

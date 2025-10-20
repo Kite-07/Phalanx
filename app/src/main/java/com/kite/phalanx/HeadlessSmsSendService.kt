@@ -5,7 +5,6 @@ import android.content.Intent
 import android.net.Uri
 import android.os.IBinder
 import android.telephony.TelephonyManager
-import android.util.Log
 
 /**
  * Service to handle "respond via message" requests from the system
@@ -20,7 +19,6 @@ class HeadlessSmsSendService : Service() {
             val message = intent.getStringExtra(Intent.EXTRA_TEXT)
 
             if (recipient != null && message != null) {
-                Log.d("HeadlessSmsSendService", "Sending SMS to $recipient: $message")
                 SmsHelper.sendSms(this, recipient, message)
             }
         }

@@ -10,14 +10,20 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.ContactsContract
 import android.provider.Telephony
-import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -36,6 +42,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MailOutline
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
@@ -49,6 +56,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -57,6 +65,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -65,13 +74,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.border
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.Modifier
@@ -84,40 +92,32 @@ import java.util.Locale
 
 class SmsDetailActivity : ComponentActivity() {
 
-    companion object {
-        init {
-            Log.e("SmsDetailActivity", "========== COMPANION OBJECT STATIC INIT ==========")
-            android.util.Log.wtf("SmsDetailActivity", "CLASS LOADED")
-        }
-    }
-
-    init {
-        Log.e("SmsDetailActivity", "========== INSTANCE INIT BLOCK ==========")
-        android.util.Log.wtf("SmsDetailActivity", "INSTANCE CREATED")
-    }
+    // Flag to prevent ContentObserver from refreshing while we mark messages as read
+    @Volatile
+    private var isMarkingAsRead = false
 
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
-        Log.e("SmsDetailActivity", "========== onCreate START ==========")
-        android.util.Log.wtf("SmsDetailActivity", "onCreate called")
         super.onCreate(savedInstanceState)
-        Log.e("SmsDetailActivity", "onCreate after super")
         val sender = intent.getStringExtra("sender") ?: "Unknown Sender"
 
-        Log.d("SmsDetailActivity", "onCreate called - sender: $sender")
-        Log.d("SmsDetailActivity", "Intent action: ${intent.action}, data: ${intent.data}")
-
-        // Mark messages as read when opening conversation
-        SmsOperations.markAsRead(this, sender)
-        // Cancel notification for this sender
-        NotificationHelper.cancelNotification(this, sender)
-
         setContent {
-            Log.d("SmsDetailActivity", "setContent called")
             PhalanxTheme {
+                // Read messages FIRST to capture unread status before marking as read
                 var messages by remember { mutableStateOf(readSmsMessages(sender)) }
                 var refreshTrigger by remember { mutableStateOf(0) }
                 val scope = rememberCoroutineScope()
+
+                // Mark as read/seen and cancel notification after initial load
+                LaunchedEffect(Unit) {
+                    isMarkingAsRead = true
+                    SmsOperations.markAsRead(this@SmsDetailActivity, sender)
+                    SmsOperations.markAsSeen(this@SmsDetailActivity, sender)
+                    NotificationHelper.cancelNotification(this@SmsDetailActivity, sender)
+                    // Small delay to ensure ContentObserver processes all changes
+                    kotlinx.coroutines.delay(200)
+                    isMarkingAsRead = false
+                }
 
                 // Refresh messages when trigger changes
                 LaunchedEffect(refreshTrigger) {
@@ -130,9 +130,11 @@ class SmsDetailActivity : ComponentActivity() {
                 DisposableEffect(Unit) {
                     val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
                         override fun onChange(selfChange: Boolean) {
-                            scope.launch {
-                                android.util.Log.d("SmsDetailActivity", "SMS database changed, refreshing")
-                                messages = readSmsMessages(sender)
+                            // Skip refresh if we're currently marking messages as read
+                            if (!isMarkingAsRead) {
+                                scope.launch {
+                                    messages = readSmsMessages(sender)
+                                }
                             }
                         }
                     }
@@ -183,7 +185,6 @@ class SmsDetailActivity : ComponentActivity() {
                         try {
                             lookupContactName(sender)
                         } catch (e: Exception) {
-                            Log.e("SmsDetailActivity", "Error loading contact name", e)
                             null
                         }
                     }
@@ -194,8 +195,20 @@ class SmsDetailActivity : ComponentActivity() {
                     value = try {
                         loadContactPhoto(sender)
                     } catch (e: Exception) {
-                        Log.e("SmsDetailActivity", "Error loading contact photo", e)
                         null
+                    }
+                }
+
+                // List state for scroll-to-bottom functionality
+                val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+
+                // Show scroll-to-bottom button when user has scrolled up significantly
+                val showScrollToBottom by remember {
+                    derivedStateOf {
+                        val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+                        val totalItems = listState.layoutInfo.totalItemsCount
+                        // Show button if user is not near the bottom (more than 5 messages away)
+                        totalItems > 0 && lastVisibleIndex < totalItems - 5
                     }
                 }
 
@@ -208,7 +221,8 @@ class SmsDetailActivity : ComponentActivity() {
                                 } else {
                                     ContactTitle(
                                         displayName = displayName,
-                                        contactPhoto = contactPhoto
+                                        contactPhoto = contactPhoto,
+                                        sender = sender
                                     )
                                 }
                             },
@@ -285,6 +299,18 @@ class SmsDetailActivity : ComponentActivity() {
                         )
                     },
                     bottomBar = {
+                        var showSimSelector by remember { mutableStateOf(false) }
+                        val activeSims by remember { mutableStateOf(SimHelper.getActiveSims(this@SmsDetailActivity)) }
+                        val hasMultipleSims = activeSims.size > 1
+                        var currentSimId by remember { mutableStateOf(-1) }
+
+                        // Load current SIM for conversation when dialog is shown
+                        LaunchedEffect(showSimSelector) {
+                            if (showSimSelector) {
+                                currentSimId = SimPreferences.getSimForConversation(this@SmsDetailActivity, sender)
+                            }
+                        }
+
                         MessageComposer(
                             message = messageText,
                             onMessageChange = { newText ->
@@ -294,65 +320,153 @@ class SmsDetailActivity : ComponentActivity() {
                                     try {
                                         DraftsManager.saveDraft(this@SmsDetailActivity, sender, newText)
                                     } catch (e: Exception) {
-                                        android.util.Log.e("SmsDetailActivity", "Error saving draft", e)
+                                        // Silently handle error
                                     }
                                 }
                             },
                             onSendClick = {
-                                android.util.Log.d("SmsDetailActivity", "Send button clicked, messageText: '${messageText}'")
                                 if (messageText.isNotBlank()) {
-                                    val messageToSend = messageText
-                                    android.util.Log.d("SmsDetailActivity", "About to call SmsHelper.sendSms - recipient: $sender, message: $messageToSend")
-                                    try {
-                                        SmsHelper.sendSms(
-                                            context = this@SmsDetailActivity,
-                                            recipient = sender,
-                                            message = messageToSend
-                                        )
-                                        android.util.Log.d("SmsDetailActivity", "SmsHelper.sendSms returned")
-                                    } catch (e: Exception) {
-                                        android.util.Log.e("SmsDetailActivity", "Exception calling SmsHelper.sendSms", e)
-                                    }
-                                    messageText = ""
-                                    // Delete draft after sending
                                     scope.launch {
+                                        val messageToSend = messageText
+                                        // Get SIM to use for this conversation
+                                        val subId = SimPreferences.getSimForConversation(this@SmsDetailActivity, sender)
+                                        try {
+                                            SmsHelper.sendSms(
+                                                context = this@SmsDetailActivity,
+                                                recipient = sender,
+                                                message = messageToSend,
+                                                subscriptionId = subId
+                                            )
+                                        } catch (e: Exception) {
+                                            // Silently handle error
+                                        }
+                                        messageText = ""
+                                        // Delete draft after sending
                                         try {
                                             DraftsManager.deleteDraft(this@SmsDetailActivity, sender)
                                         } catch (e: Exception) {
-                                            android.util.Log.e("SmsDetailActivity", "Error deleting draft", e)
+                                            // Silently handle error
                                         }
-                                    }
-                                    // Refresh messages after a short delay to allow database write
-                                    scope.launch {
+                                        // Refresh messages after a short delay to allow database write
                                         kotlinx.coroutines.delay(500) // Wait for DB write
                                         refreshTrigger++
                                     }
                                 }
-                            }
+                            },
+                            onSendLongClick = {
+                                // Show SIM selector if there are active SIMs
+                                if (activeSims.isNotEmpty() && messageText.isNotBlank()) {
+                                    showSimSelector = true
+                                }
+                            },
+                            hasMultipleSims = hasMultipleSims
                         )
+
+                        if (showSimSelector) {
+                            SimSelectorDialog(
+                                sims = activeSims,
+                                selectedSubscriptionId = currentSimId,
+                                onSimSelected = { selectedSubId, setAsDefault ->
+                                    showSimSelector = false
+                                    if (messageText.isNotBlank()) {
+                                        scope.launch {
+                                            val messageToSend = messageText
+                                            // Save as default for this conversation if checkbox was checked
+                                            if (setAsDefault) {
+                                                SimPreferences.setConversationSim(this@SmsDetailActivity, sender, selectedSubId)
+                                            }
+                                            try {
+                                                SmsHelper.sendSms(
+                                                    context = this@SmsDetailActivity,
+                                                    recipient = sender,
+                                                    message = messageToSend,
+                                                    subscriptionId = selectedSubId
+                                                )
+                                            } catch (e: Exception) {
+                                                // Silently handle error
+                                            }
+                                            messageText = ""
+                                            // Delete draft after sending
+                                            try {
+                                                DraftsManager.deleteDraft(this@SmsDetailActivity, sender)
+                                            } catch (e: Exception) {
+                                                // Silently handle error
+                                            }
+                                            // Refresh messages
+                                            kotlinx.coroutines.delay(500)
+                                            refreshTrigger++
+                                        }
+                                    }
+                                },
+                                onDismiss = { showSimSelector = false }
+                            )
+                        }
                     }
                 ) { innerPadding ->
-                    SmsDetailScreen(
-                        messages = messages,
-                        selectedMessages = selectedMessages,
-                        onMessageLongClick = { timestamp ->
-                            selectedMessages = if (selectedMessages.contains(timestamp)) {
-                                selectedMessages - timestamp
-                            } else {
-                                selectedMessages + timestamp
-                            }
-                        },
-                        onMessageClick = { timestamp ->
-                            if (isSelectionMode) {
+                    val messageUiModels = remember(messages) { buildMessageUiModels(messages) }
+
+                    // Find the index where the "New messages" divider is shown
+                    val scrollToIndex = remember(messageUiModels) {
+                        val dividerIndex = messageUiModels.indexOfFirst { it.showNewMessagesDivider }
+                        if (dividerIndex >= 0) {
+                            // Scroll to the divider (which is at the first unread message)
+                            dividerIndex
+                        } else {
+                            // No unread messages, scroll to the last message
+                            (messageUiModels.size - 1).coerceAtLeast(0)
+                        }
+                    }
+
+                    Box(modifier = Modifier.padding(innerPadding)) {
+                        SmsDetailScreen(
+                            messageUiModels = messageUiModels,
+                            selectedMessages = selectedMessages,
+                            scrollToIndex = scrollToIndex,
+                            onMessageLongClick = { timestamp ->
                                 selectedMessages = if (selectedMessages.contains(timestamp)) {
                                     selectedMessages - timestamp
                                 } else {
                                     selectedMessages + timestamp
                                 }
+                            },
+                            onMessageClick = { timestamp ->
+                                if (isSelectionMode) {
+                                    selectedMessages = if (selectedMessages.contains(timestamp)) {
+                                        selectedMessages - timestamp
+                                    } else {
+                                        selectedMessages + timestamp
+                                    }
+                                }
+                            },
+                            listState = listState,
+                            modifier = Modifier.fillMaxSize()
+                        )
+
+                        // Scroll to bottom FAB
+                        AnimatedVisibility(
+                            visible = showScrollToBottom,
+                            enter = fadeIn() + scaleIn(),
+                            exit = fadeOut() + scaleOut(),
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .padding(bottom = 16.dp)
+                        ) {
+                            SmallFloatingActionButton(
+                                onClick = {
+                                    scope.launch {
+                                        listState.animateScrollToItem(messageUiModels.size - 1)
+                                    }
+                                },
+                                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.KeyboardArrowDown,
+                                    contentDescription = "Scroll to bottom"
+                                )
                             }
-                        },
-                        modifier = Modifier.padding(innerPadding)
-                    )
+                        }
+                    }
                 }
 
                 if (showDeleteConfirmDialog) {
@@ -369,7 +483,7 @@ class SmsDetailActivity : ComponentActivity() {
                                         try {
                                             DraftsManager.deleteDraft(this@SmsDetailActivity, sender)
                                         } catch (e: Exception) {
-                                            android.util.Log.e("SmsDetailActivity", "Error deleting draft on thread delete", e)
+                                            // Silently handle error
                                         }
                                     }
                                     finish()
@@ -455,7 +569,10 @@ class SmsDetailActivity : ComponentActivity() {
         val projection = arrayOf(
             Telephony.Sms.BODY,
             Telephony.Sms.DATE,
-            Telephony.Sms.TYPE
+            Telephony.Sms.TYPE,
+            Telephony.Sms.SUBSCRIPTION_ID,
+            Telephony.Sms.SEEN,
+            Telephony.Sms.READ
         )
 
         val cursor = contentResolver.query(
@@ -471,17 +588,26 @@ class SmsDetailActivity : ComponentActivity() {
             val indexBody = it.getColumnIndex(Telephony.Sms.BODY)
             val indexDate = it.getColumnIndex(Telephony.Sms.DATE)
             val indexType = it.getColumnIndex(Telephony.Sms.TYPE)
+            val indexSubId = it.getColumnIndex(Telephony.Sms.SUBSCRIPTION_ID)
+            val indexSeen = it.getColumnIndex(Telephony.Sms.SEEN)
+            val indexRead = it.getColumnIndex(Telephony.Sms.READ)
 
             while (it.moveToNext()) {
                 val body = it.getString(indexBody).orEmpty()
                 val timestamp = it.getLong(indexDate)
                 val type = it.getInt(indexType)
+                val subId = if (indexSubId >= 0) it.getInt(indexSubId) else -1
+                val isSeen = if (indexSeen >= 0) it.getInt(indexSeen) == 1 else true
+                val isRead = if (indexRead >= 0) it.getInt(indexRead) == 1 else true
                 smsList.add(
                     SmsMessage(
                         sender = sender,
                         body = body,
                         timestamp = timestamp,
-                        isSentByUser = isUserMessage(type)
+                        isSentByUser = isUserMessage(type),
+                        subscriptionId = subId,
+                        isSeen = isSeen,
+                        isRead = isRead
                     )
                 )
             }
@@ -562,10 +688,25 @@ class SmsDetailActivity : ComponentActivity() {
 }
 
 @Composable
-fun ContactTitle(displayName: String, contactPhoto: ImageBitmap?) {
+fun ContactTitle(displayName: String, contactPhoto: ImageBitmap?, sender: String) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    // Check if conversation is muted
+    val isMuted by ConversationMutePreferences.isConversationMutedFlow(context, sender)
+        .collectAsState(initial = false)
+
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable {
+                // Open contact detail activity
+                val intent = android.content.Intent(context, ContactDetailActivity::class.java).apply {
+                    putExtra("phone_number", sender)
+                    putExtra("contact_name", displayName)
+                }
+                context.startActivity(intent)
+            }
     ) {
         // Contact photo
         if (contactPhoto != null) {
@@ -595,21 +736,37 @@ fun ContactTitle(displayName: String, contactPhoto: ImageBitmap?) {
         }
         Spacer(modifier = Modifier.width(12.dp))
         Text(text = displayName)
+        if (isMuted) {
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = "(Muted)",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun SmsDetailScreen(
-    messages: List<SmsMessage>,
+internal fun SmsDetailScreen(
+    messageUiModels: List<MessageUiModel>,
     selectedMessages: Set<Long>,
+    scrollToIndex: Int,
     onMessageLongClick: (Long) -> Unit,
     onMessageClick: (Long) -> Unit,
+    listState: androidx.compose.foundation.lazy.LazyListState,
     modifier: Modifier = Modifier
 ) {
-    val messageUiModels = remember(messages) { buildMessageUiModels(messages) }
+    // Scroll to the target index when messages load
+    LaunchedEffect(scrollToIndex, messageUiModels.size) {
+        if (messageUiModels.isNotEmpty() && scrollToIndex >= 0 && scrollToIndex < messageUiModels.size) {
+            listState.scrollToItem(scrollToIndex)
+        }
+    }
 
     LazyColumn(
+        state = listState,
         modifier = modifier
             .fillMaxSize()
             .padding(horizontal = 16.dp, vertical = 12.dp),
@@ -619,13 +776,18 @@ fun SmsDetailScreen(
             items = messageUiModels,
             key = { "${it.message.timestamp}-${it.message.isSentByUser}" }
         ) { uiModel ->
-            MessageBubble(
-                message = uiModel.message,
-                showTimestamp = uiModel.showTimestamp,
-                isSelected = selectedMessages.contains(uiModel.message.timestamp),
-                onLongClick = { onMessageLongClick(uiModel.message.timestamp) },
-                onClick = { onMessageClick(uiModel.message.timestamp) }
-            )
+            Column {
+                if (uiModel.showNewMessagesDivider) {
+                    NewMessagesDivider()
+                }
+                MessageBubble(
+                    message = uiModel.message,
+                    showTimestamp = uiModel.showTimestamp,
+                    isSelected = selectedMessages.contains(uiModel.message.timestamp),
+                    onLongClick = { onMessageLongClick(uiModel.message.timestamp) },
+                    onClick = { onMessageClick(uiModel.message.timestamp) }
+                )
+            }
         }
     }
 }
@@ -639,13 +801,24 @@ fun MessageBubble(
     onLongClick: () -> Unit,
     onClick: () -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val timeFormatter = remember { SimpleDateFormat("h:mm a", Locale.getDefault()) }
     val alignment = if (message.isSentByUser) Alignment.End else Alignment.Start
-    val bubbleColor = if (message.isSentByUser) {
+
+    // Get bubble color based on SIM for user's messages, or default for received messages
+    val bubbleColor = if (message.isSentByUser && message.subscriptionId != -1) {
+        // For user's messages, use the custom SIM color from preferences
+        val simBubbleColor by SimPreferences.getBubbleColorForSimFlow(context, message.subscriptionId)
+            .collectAsState(initial = MaterialTheme.colorScheme.primary)
+        simBubbleColor
+    } else if (message.isSentByUser) {
+        // User message but no SIM info, use primary color
         MaterialTheme.colorScheme.primary
     } else {
+        // Received message, use grey
         MaterialTheme.colorScheme.surfaceVariant
     }
+
     val textColor = if (message.isSentByUser) {
         MaterialTheme.colorScheme.onPrimary
     } else {
@@ -681,8 +854,7 @@ fun MessageBubble(
                 text = message.body,
                 color = textColor,
                 style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier
-                    .padding(horizontal = 16.dp, vertical = 10.dp)
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
             )
         }
         if (showTimestamp) {
@@ -706,30 +878,71 @@ fun MessageBubble(
     }
 }
 
-private data class MessageUiModel(
+@Composable
+fun NewMessagesDivider(modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        androidx.compose.material3.HorizontalDivider(
+            modifier = Modifier.weight(1f),
+            color = Color(0xFF4CAF50) // Green color
+        )
+        Text(
+            text = "Unread",
+            style = MaterialTheme.typography.labelMedium,
+            color = Color(0xFF4CAF50),
+            modifier = Modifier.padding(horizontal = 12.dp)
+        )
+        androidx.compose.material3.HorizontalDivider(
+            modifier = Modifier.weight(1f),
+            color = Color(0xFF4CAF50)
+        )
+    }
+}
+
+internal data class MessageUiModel(
     val message: SmsMessage,
-    val showTimestamp: Boolean
+    val showTimestamp: Boolean,
+    val showNewMessagesDivider: Boolean = false
 )
 
-private fun buildMessageUiModels(messages: List<SmsMessage>): List<MessageUiModel> {
+internal fun buildMessageUiModels(messages: List<SmsMessage>): List<MessageUiModel> {
     if (messages.isEmpty()) return emptyList()
 
     val sorted = messages.sortedBy { it.timestamp }
+
+    // Find the first unread received message
+    val firstUnreadIndex = sorted.indexOfFirst { !it.isRead && !it.isSentByUser }
+
     return sorted.mapIndexed { index, message ->
         val currentMinute = minuteBucket(message.timestamp)
         val nextMinute = sorted.getOrNull(index + 1)?.timestamp?.let(::minuteBucket)
         val showTimestamp = nextMinute == null || nextMinute != currentMinute
-        MessageUiModel(message = message, showTimestamp = showTimestamp)
+
+        // Show "New messages" divider at the first unread message
+        val showNewMessagesDivider = firstUnreadIndex >= 0 && index == firstUnreadIndex
+
+        MessageUiModel(
+            message = message,
+            showTimestamp = showTimestamp,
+            showNewMessagesDivider = showNewMessagesDivider
+        )
     }
 }
 
 private fun minuteBucket(timestamp: Long): Long = timestamp / 60_000L
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MessageComposer(
     message: String,
     onMessageChange: (String) -> Unit,
     onSendClick: () -> Unit,
+    onSendLongClick: () -> Unit = {},
+    hasMultipleSims: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val charCount = message.length
@@ -765,13 +978,25 @@ fun MessageComposer(
                     }
                 }
                 Spacer(modifier = Modifier.width(8.dp))
-                IconButton(
-                    onClick = {
-                        android.util.Log.d("MessageComposer", "IconButton clicked, message: '$message', isNotBlank: ${message.isNotBlank()}")
-                        onSendClick()
-                    },
-                    enabled = message.isNotBlank(),
-                    modifier = Modifier.size(48.dp)
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .then(
+                            if (message.isNotBlank()) {
+                                Modifier.combinedClickable(
+                                    onClick = {
+                                        onSendClick()
+                                    },
+                                    onLongClick = {
+                                        onSendLongClick()
+                                    }
+                                )
+                            } else {
+                                Modifier
+                            }
+                        ),
+                    contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.Send,
@@ -780,7 +1005,8 @@ fun MessageComposer(
                             MaterialTheme.colorScheme.primary
                         } else {
                             MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                        }
+                        },
+                        modifier = Modifier.size(24.dp)
                     )
                 }
             }

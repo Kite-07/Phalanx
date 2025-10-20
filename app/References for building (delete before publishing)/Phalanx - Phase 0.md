@@ -1,4 +1,4 @@
-# Phalanx \- Phase 0 
+# Phalanx - Phase 0
 
 # Scope
 
@@ -40,8 +40,8 @@ Notifications
 
 Dual SIM
 
-* $$SIM selector on composer.
-* $$SIM badges in thread list and bubbles.
+* SIM selector on composer.
+* SIM colored bubbles.
 
 Message Management
 

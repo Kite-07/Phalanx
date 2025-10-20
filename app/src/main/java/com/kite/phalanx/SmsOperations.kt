@@ -4,7 +4,6 @@ import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
 import android.provider.Telephony
-import android.util.Log
 import android.widget.Toast
 
 /**
@@ -34,10 +33,8 @@ object SmsOperations {
             }
 
             val uri = context.contentResolver.insert(Telephony.Sms.CONTENT_URI, values)
-            Log.d("SmsOperations", "Wrote incoming SMS to database: $uri")
             uri
         } catch (e: Exception) {
-            Log.e("SmsOperations", "Failed to write incoming SMS", e)
             null
         }
     }
@@ -50,7 +47,8 @@ object SmsOperations {
         context: Context,
         recipient: String,
         messageBody: String,
-        timestamp: Long
+        timestamp: Long,
+        subscriptionId: Int = -1
     ): Uri? {
         return try {
             val values = ContentValues().apply {
@@ -61,13 +59,14 @@ object SmsOperations {
                 put(Telephony.Sms.READ, 1) // Sent messages are read
                 put(Telephony.Sms.SEEN, 1) // Sent messages are seen
                 put(Telephony.Sms.TYPE, Telephony.Sms.MESSAGE_TYPE_SENT)
+                if (subscriptionId != -1) {
+                    put(Telephony.Sms.SUBSCRIPTION_ID, subscriptionId)
+                }
             }
 
             val uri = context.contentResolver.insert(Telephony.Sms.CONTENT_URI, values)
-            Log.d("SmsOperations", "Wrote sent SMS to database: $uri")
             uri
         } catch (e: Exception) {
-            Log.e("SmsOperations", "Failed to write sent SMS", e)
             null
         }
     }
@@ -77,22 +76,17 @@ object SmsOperations {
      */
     fun deleteThread(context: Context, sender: String): Boolean {
         return try {
-            Log.d("SmsOperations", "Attempting to delete thread for: $sender")
-
             // Check if app is default SMS app using both methods
             val defaultSmsPackage = Telephony.Sms.getDefaultSmsPackage(context)
             val currentPackage = context.packageName
-            Log.d("SmsOperations", "Default SMS package: $defaultSmsPackage, Current package: $currentPackage")
 
             // On Android 10+, also check via RoleManager
             val isDefaultViaRole = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
                 try {
                     val roleManager = context.getSystemService(android.app.role.RoleManager::class.java)
                     val isDefault = roleManager?.isRoleHeld(android.app.role.RoleManager.ROLE_SMS) ?: false
-                    Log.d("SmsOperations", "RoleManager check - is default SMS: $isDefault")
                     isDefault
                 } catch (e: Exception) {
-                    Log.e("SmsOperations", "Error checking SMS role", e)
                     false
                 }
             } else {
@@ -102,12 +96,9 @@ object SmsOperations {
             val isDefaultSmsApp = (defaultSmsPackage == currentPackage) || isDefaultViaRole
 
             if (!isDefaultSmsApp) {
-                Log.w("SmsOperations", "Not default SMS app. Default is: $defaultSmsPackage, Current: $currentPackage, Role: $isDefaultViaRole")
                 Toast.makeText(context, "Cannot delete: Set Phalanx as default SMS app first", Toast.LENGTH_LONG).show()
                 return false
             }
-
-            Log.d("SmsOperations", "App is default SMS app, proceeding with delete")
 
             // Try deleting with exact address match
             var deleted = context.contentResolver.delete(
@@ -115,8 +106,6 @@ object SmsOperations {
                 "${Telephony.Sms.ADDRESS} = ?",
                 arrayOf(sender)
             )
-
-            Log.d("SmsOperations", "Exact match deleted: $deleted messages")
 
             // If no messages deleted, try with LIKE to handle different number formats
             if (deleted == 0) {
@@ -155,7 +144,6 @@ object SmsOperations {
                 }
 
                 deleted = idsToDelete.size
-                Log.d("SmsOperations", "Normalized match deleted: $deleted messages")
             }
 
             if (deleted > 0) {
@@ -166,11 +154,9 @@ object SmsOperations {
 
             deleted > 0
         } catch (e: SecurityException) {
-            Log.e("SmsOperations", "Security exception deleting messages - app may not be default SMS app", e)
             Toast.makeText(context, "Cannot delete: Set Phalanx as default SMS app", Toast.LENGTH_LONG).show()
             false
         } catch (e: Exception) {
-            Log.e("SmsOperations", "Failed to delete messages", e)
             Toast.makeText(context, "Failed to delete: ${e.message}", Toast.LENGTH_SHORT).show()
             false
         }
@@ -191,7 +177,6 @@ object SmsOperations {
                     val roleManager = context.getSystemService(android.app.role.RoleManager::class.java)
                     roleManager?.isRoleHeld(android.app.role.RoleManager.ROLE_SMS) ?: false
                 } catch (e: Exception) {
-                    Log.e("SmsOperations", "Error checking SMS role", e)
                     false
                 }
             } else {
@@ -201,7 +186,6 @@ object SmsOperations {
             val isDefaultSmsApp = (defaultSmsPackage == currentPackage) || isDefaultViaRole
 
             if (!isDefaultSmsApp) {
-                Log.w("SmsOperations", "Cannot delete message - not default SMS app")
                 Toast.makeText(context, "Cannot delete: Set Phalanx as default SMS app first", Toast.LENGTH_LONG).show()
                 return false
             }
@@ -216,11 +200,9 @@ object SmsOperations {
             }
             deleted > 0
         } catch (e: SecurityException) {
-            Log.e("SmsOperations", "Security exception deleting message - app may not be default SMS app", e)
             Toast.makeText(context, "Cannot delete: Set Phalanx as default SMS app", Toast.LENGTH_LONG).show()
             false
         } catch (e: Exception) {
-            Log.e("SmsOperations", "Failed to delete message", e)
             Toast.makeText(context, "Failed to delete: ${e.message}", Toast.LENGTH_SHORT).show()
             false
         }
@@ -233,6 +215,26 @@ object SmsOperations {
         return try {
             val values = android.content.ContentValues().apply {
                 put(Telephony.Sms.READ, 1)
+            }
+            val updated = context.contentResolver.update(
+                Telephony.Sms.CONTENT_URI,
+                values,
+                "${Telephony.Sms.ADDRESS} = ?",
+                arrayOf(sender)
+            )
+            updated > 0
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Marks messages as seen
+     */
+    fun markAsSeen(context: Context, sender: String): Boolean {
+        return try {
+            val values = android.content.ContentValues().apply {
+                put(Telephony.Sms.SEEN, 1)
             }
             val updated = context.contentResolver.update(
                 Telephony.Sms.CONTENT_URI,
@@ -300,11 +302,9 @@ object SmsOperations {
                     values
                 )
                 if (uri != null) {
-                    Log.d("SmsOperations", "Blocked number: $phoneNumber")
                     Toast.makeText(context, "Number blocked", Toast.LENGTH_SHORT).show()
                     true
                 } else {
-                    Log.e("SmsOperations", "Failed to block number: $phoneNumber")
                     Toast.makeText(context, "Failed to block number", Toast.LENGTH_SHORT).show()
                     false
                 }
@@ -313,11 +313,9 @@ object SmsOperations {
                 false
             }
         } catch (e: SecurityException) {
-            Log.e("SmsOperations", "Permission denied to block number", e)
             Toast.makeText(context, "Permission required to block numbers", Toast.LENGTH_LONG).show()
             false
         } catch (e: Exception) {
-            Log.e("SmsOperations", "Error blocking number", e)
             Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
             false
         }
@@ -335,11 +333,9 @@ object SmsOperations {
                     arrayOf(phoneNumber)
                 )
                 if (deleted > 0) {
-                    Log.d("SmsOperations", "Unblocked number: $phoneNumber")
                     Toast.makeText(context, "Number unblocked", Toast.LENGTH_SHORT).show()
                     true
                 } else {
-                    Log.w("SmsOperations", "Number not found in blocked list: $phoneNumber")
                     Toast.makeText(context, "Number was not blocked", Toast.LENGTH_SHORT).show()
                     false
                 }
@@ -347,7 +343,6 @@ object SmsOperations {
                 false
             }
         } catch (e: Exception) {
-            Log.e("SmsOperations", "Error unblocking number", e)
             Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
             false
         }
@@ -372,7 +367,6 @@ object SmsOperations {
                 false
             }
         } catch (e: Exception) {
-            Log.e("SmsOperations", "Error checking if number is blocked", e)
             false
         }
     }

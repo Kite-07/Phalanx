@@ -12,16 +12,11 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.ContactsContract
 import android.provider.Telephony
-import android.util.Log
-import androidx.datastore.core.DataStore
-import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.core.booleanPreferencesKey
-import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.preferencesDataStore
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
@@ -37,14 +32,18 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -67,6 +66,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -75,6 +75,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -82,18 +84,12 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.kite.phalanx.ui.theme.PhalanxTheme
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.LinkedHashMap
-
-// Preferences DataStore
-private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
-private val DONT_ASK_DEFAULT_SMS = booleanPreferencesKey("dont_ask_default_sms")
 
 // WRITE_SMS and RECEIVE_SMS are automatically granted to default SMS app, don't request them
 private val REQUIRED_PERMISSIONS = arrayOf(
@@ -108,19 +104,17 @@ class SmsListActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Create notification channel
-        NotificationHelper.createNotificationChannel(this)
-
         setContent {
             PhalanxTheme {
                 var smsList by remember { mutableStateOf<List<SmsMessage>>(emptyList()) }
-                var showDefaultSmsDialog by remember { mutableStateOf(false) }
+                var isDefaultSmsApp by remember { mutableStateOf(false) }
                 var searchQuery by remember { mutableStateOf("") }
                 var isSearching by remember { mutableStateOf(false) }
                 var selectedThreads by remember { mutableStateOf<Set<String>>(emptySet()) }
                 val isSelectionMode = selectedThreads.isNotEmpty()
                 var showDeleteConfirmDialog by remember { mutableStateOf(false) }
                 var showBlockConfirmDialog by remember { mutableStateOf(false) }
+                var showMuteDialog by remember { mutableStateOf(false) }
                 var showOverflowMenu by remember { mutableStateOf(false) }
                 val context = LocalContext.current
                 val lifecycleOwner = this@SmsListActivity
@@ -154,51 +148,36 @@ class SmsListActivity : ComponentActivity() {
                     }
                 }
 
+                // Function to check if app is default SMS app
+                val checkDefaultSmsStatus = {
+                    val defaultSmsPackage = Telephony.Sms.getDefaultSmsPackage(context)
+                    val isDefaultViaPackage = defaultSmsPackage == context.packageName
+
+                    // Alternative check: see if we have the role
+                    val roleManager = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                        context.getSystemService(android.app.role.RoleManager::class.java)
+                    } else null
+
+                    val isDefaultViaRole = roleManager?.isRoleHeld(android.app.role.RoleManager.ROLE_SMS) ?: false
+
+                    isDefaultViaPackage || isDefaultViaRole
+                }
+
                 LaunchedEffect(Unit) {
+                    // Create notification channel
+                    NotificationHelper.createNotificationChannel(context)
+
+                    // Check if app is default SMS app
+                    isDefaultSmsApp = checkDefaultSmsStatus()
+
                     val missingPermissions = REQUIRED_PERMISSIONS.filter {
                         ContextCompat.checkSelfPermission(context, it) !=
                                 PackageManager.PERMISSION_GRANTED
                     }
 
                     if (missingPermissions.isEmpty()) {
-                        refreshSmsList()
-
-                        // Check if we should show default SMS app prompt
-                        // Use multiple methods to check if we're the default SMS app
-                        val defaultSmsPackage = Telephony.Sms.getDefaultSmsPackage(context)
-                        val isDefaultViaPackage = defaultSmsPackage == context.packageName
-
-                        // Alternative check: see if we have the role
-                        val roleManager = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                            context.getSystemService(android.app.role.RoleManager::class.java)
-                        } else null
-
-                        val isDefaultViaRole = roleManager?.isRoleHeld(android.app.role.RoleManager.ROLE_SMS) ?: false
-
-                        val isDefaultSmsApp = isDefaultViaPackage || isDefaultViaRole
-
-                        Log.d("SmsListActivity", "Default SMS package: $defaultSmsPackage")
-                        Log.d("SmsListActivity", "This app package: ${context.packageName}")
-                        Log.d("SmsListActivity", "Is default via package: $isDefaultViaPackage")
-                        Log.d("SmsListActivity", "Is default via role: $isDefaultViaRole")
-                        Log.d("SmsListActivity", "Is default (combined): $isDefaultSmsApp")
-
-                        // Only show dialog if not already default SMS app
-                        if (!isDefaultSmsApp) {
-                            val preferences = context.dataStore.data.first()
-                            val dontAsk = preferences[DONT_ASK_DEFAULT_SMS] ?: false
-
-                            Log.d("SmsListActivity", "Don't ask again: $dontAsk")
-
-                            // Show dialog only if user hasn't explicitly dismissed it
-                            if (!dontAsk) {
-                                Log.d("SmsListActivity", "Showing default SMS dialog")
-                                showDefaultSmsDialog = true
-                            } else {
-                                Log.d("SmsListActivity", "Not showing dialog (user preference)")
-                            }
-                        } else {
-                            Log.d("SmsListActivity", "Already default SMS app, not showing dialog")
+                        if (isDefaultSmsApp) {
+                            refreshSmsList()
                         }
                     } else {
                         permissionLauncher.launch(missingPermissions.toTypedArray())
@@ -208,7 +187,11 @@ class SmsListActivity : ComponentActivity() {
                 DisposableEffect(lifecycleOwner) {
                     val observer = LifecycleEventObserver { _, event ->
                         if (event == Lifecycle.Event.ON_RESUME) {
-                            refreshSmsList()
+                            // Re-check default SMS app status on resume
+                            isDefaultSmsApp = checkDefaultSmsStatus()
+                            if (isDefaultSmsApp) {
+                                refreshSmsList()
+                            }
                         }
                     }
                     lifecycleOwner.lifecycle.addObserver(observer)
@@ -272,7 +255,7 @@ class SmsListActivity : ComponentActivity() {
                                         modifier = Modifier.fillMaxWidth()
                                     )
                                 } else {
-                                    Text("Messages")
+                                    Text("Phalanx")
                                 }
                             },
                             navigationIcon = {
@@ -313,6 +296,11 @@ class SmsListActivity : ComponentActivity() {
                                     }) {
                                         Icon(Icons.Default.Warning, contentDescription = "Block")
                                     }
+                                    IconButton(onClick = {
+                                        showMuteDialog = true
+                                    }) {
+                                        Icon(Icons.Default.Notifications, contentDescription = "Mute/Unmute")
+                                    }
                                 } else {
                                     IconButton(onClick = {
                                         isSearching = !isSearching
@@ -327,6 +315,16 @@ class SmsListActivity : ComponentActivity() {
                                         expanded = showOverflowMenu,
                                         onDismissRequest = { showOverflowMenu = false }
                                     ) {
+                                        DropdownMenuItem(
+                                            text = { Text("Settings") },
+                                            onClick = {
+                                                showOverflowMenu = false
+                                                startActivity(Intent(this@SmsListActivity, SettingsActivity::class.java))
+                                            },
+                                            leadingIcon = {
+                                                Icon(Icons.Default.Settings, contentDescription = null)
+                                            }
+                                        )
                                         DropdownMenuItem(
                                             text = { Text("Spam and blocked") },
                                             onClick = {
@@ -353,68 +351,48 @@ class SmsListActivity : ComponentActivity() {
                         }
                     }
                 ) { innerPadding ->
-                    SmsListScreen(
-                        smsList = filteredSmsList,
-                        selectedThreads = selectedThreads,
-                        isSelectionMode = isSelectionMode,
-                        onThreadClick = { sender ->
-                            if (isSelectionMode) {
+                    if (!isDefaultSmsApp) {
+                        // Show "Set as Default" screen
+                        SetAsDefaultScreen(
+                            onSetAsDefault = {
+                                try {
+                                    val intent = Intent(android.provider.Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS)
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    // Silently handle error
+                                }
+                            },
+                            modifier = Modifier.padding(innerPadding)
+                        )
+                    } else {
+                        // Show normal SMS list
+                        SmsListScreen(
+                            smsList = filteredSmsList,
+                            selectedThreads = selectedThreads,
+                            isSelectionMode = isSelectionMode,
+                            onThreadClick = { sender ->
+                                if (isSelectionMode) {
+                                    selectedThreads = if (sender in selectedThreads) {
+                                        selectedThreads - sender
+                                    } else {
+                                        selectedThreads + sender
+                                    }
+                                } else {
+                                    val intent = Intent(context, SmsDetailActivity::class.java)
+                                    intent.putExtra("sender", sender)
+                                    context.startActivity(intent)
+                                }
+                            },
+                            onThreadLongClick = { sender ->
                                 selectedThreads = if (sender in selectedThreads) {
                                     selectedThreads - sender
                                 } else {
                                     selectedThreads + sender
                                 }
-                            } else {
-                                val intent = Intent(context, SmsDetailActivity::class.java)
-                                intent.putExtra("sender", sender)
-                                context.startActivity(intent)
-                            }
-                        },
-                        onThreadLongClick = { sender ->
-                            selectedThreads = if (sender in selectedThreads) {
-                                selectedThreads - sender
-                            } else {
-                                selectedThreads + sender
-                            }
-                        },
-                        modifier = Modifier.padding(innerPadding)
-                    )
-                }
-
-                if (showDefaultSmsDialog) {
-                    DefaultSmsDialog(
-                        onDismiss = { showDefaultSmsDialog = false },
-                        onSetAsDefault = { dontAskAgain ->
-                            showDefaultSmsDialog = false
-                            if (dontAskAgain) {
-                                coroutineScope.launch {
-                                    context.dataStore.edit { prefs ->
-                                        prefs[DONT_ASK_DEFAULT_SMS] = true
-                                    }
-                                }
-                            }
-                            // Open system settings to set default SMS app
-                            try {
-                                // Try the general default apps settings page
-                                // This is more reliable across different Android versions and manufacturers
-                                val intent = Intent(android.provider.Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS)
-                                context.startActivity(intent)
-                                Log.d("SmsListActivity", "Launched default apps settings")
-                            } catch (e: Exception) {
-                                Log.e("SmsListActivity", "Failed to launch default apps settings", e)
-                            }
-                        },
-                        onCancel = { dontAskAgain ->
-                            showDefaultSmsDialog = false
-                            if (dontAskAgain) {
-                                coroutineScope.launch {
-                                    context.dataStore.edit { prefs ->
-                                        prefs[DONT_ASK_DEFAULT_SMS] = true
-                                    }
-                                }
-                            }
-                        }
-                    )
+                            },
+                            modifier = Modifier.padding(innerPadding)
+                        )
+                    }
                 }
 
                 if (showDeleteConfirmDialog) {
@@ -468,6 +446,31 @@ class SmsListActivity : ComponentActivity() {
                         }
                     )
                 }
+
+                if (showMuteDialog) {
+                    MuteConversationsDialog(
+                        conversationCount = selectedThreads.size,
+                        onMuteFor = { durationMillis ->
+                            showMuteDialog = false
+                            coroutineScope.launch {
+                                selectedThreads.forEach { sender ->
+                                    ConversationMutePreferences.muteConversationFor(context, sender, durationMillis)
+                                }
+                                selectedThreads = emptySet()
+                            }
+                        },
+                        onUnmute = {
+                            showMuteDialog = false
+                            coroutineScope.launch {
+                                selectedThreads.forEach { sender ->
+                                    ConversationMutePreferences.unmuteConversation(context, sender)
+                                }
+                                selectedThreads = emptySet()
+                            }
+                        },
+                        onDismiss = { showMuteDialog = false }
+                    )
+                }
             }
         }
     }
@@ -478,7 +481,8 @@ class SmsListActivity : ComponentActivity() {
                 Telephony.Sms.ADDRESS,
                 Telephony.Sms.BODY,
                 Telephony.Sms.DATE,
-                Telephony.Sms.TYPE
+                Telephony.Sms.TYPE,
+                Telephony.Sms.SUBSCRIPTION_ID
             )
 
             val cursor = contentResolver.query(
@@ -495,6 +499,7 @@ class SmsListActivity : ComponentActivity() {
                 val indexBody = it.getColumnIndex(Telephony.Sms.BODY)
                 val indexDate = it.getColumnIndex(Telephony.Sms.DATE)
                 val indexType = it.getColumnIndex(Telephony.Sms.TYPE)
+                val indexSubId = it.getColumnIndex(Telephony.Sms.SUBSCRIPTION_ID)
 
                 while (it.moveToNext()) {
                     try {
@@ -508,6 +513,7 @@ class SmsListActivity : ComponentActivity() {
                         val body = it.getString(indexBody).orEmpty()
                         val timestamp = it.getLong(indexDate)
                         val messageType = it.getInt(indexType)
+                        val subId = if (indexSubId >= 0) it.getInt(indexSubId) else -1
                         val contactPhotoUri =
                             if (hasContactPermission()) lookupContactPhotoUri(address) else null
                         val contactName = lookupContactName(address)
@@ -515,7 +521,6 @@ class SmsListActivity : ComponentActivity() {
                         val draftText = try {
                             DraftsManager.getDraftSync(this@SmsListActivity, address)
                         } catch (e: Exception) {
-                            Log.e("SmsListActivity", "Error loading draft for $address", e)
                             null
                         }
 
@@ -527,10 +532,10 @@ class SmsListActivity : ComponentActivity() {
                             contactPhotoUri = contactPhotoUri,
                             unreadCount = unreadCount,
                             contactName = formatDisplayName(address, contactName),
-                            draftText = draftText
+                            draftText = draftText,
+                            subscriptionId = subId
                         )
                     } catch (e: Exception) {
-                        Log.e("SmsListActivity", "Error processing SMS message", e)
                         continue
                     }
                 }
@@ -538,7 +543,6 @@ class SmsListActivity : ComponentActivity() {
 
             return@withContext latestByAddress.values.sortedByDescending { it.timestamp }
         } catch (e: Exception) {
-            Log.e("SmsListActivity", "Error reading SMS messages", e)
             return@withContext emptyList()
         }
     }
@@ -669,6 +673,7 @@ fun SmsCard(
     onClick: () -> Unit,
     onLongClick: () -> Unit
 ) {
+    val context = LocalContext.current
     val timeFormatter = remember { SimpleDateFormat("h:mm a", Locale.getDefault()) }
     val previewText = remember(sms.body, sms.isSentByUser, sms.draftText) {
         // Show draft if it exists
@@ -683,6 +688,22 @@ fun SmsCard(
             }
         }
     }
+
+    // Get SIM info if subscription ID is valid
+    val simInfo = remember(sms.subscriptionId) {
+        if (sms.subscriptionId != -1) {
+            val info = SimHelper.getSimInfo(context, sms.subscriptionId)
+            info
+        } else {
+            null
+        }
+    }
+    val activeSims = remember { SimHelper.getActiveSims(context) }
+    val hasMultipleSims = activeSims.size > 1
+
+    // Check if conversation is muted
+    val isMuted by ConversationMutePreferences.isConversationMutedFlow(context, sms.sender)
+        .collectAsState(initial = false)
 
     Card(
         modifier = Modifier
@@ -728,13 +749,28 @@ fun SmsCard(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = sms.contactName ?: sms.sender, // contactName now includes country code prefix
-                        style = MaterialTheme.typography.titleMedium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
-                    )
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = sms.contactName ?: sms.sender, // contactName now includes country code prefix
+                            style = MaterialTheme.typography.titleMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                        if (isMuted) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Icon(
+                                imageVector = Icons.Default.NotificationsOff,
+                                contentDescription = "Muted",
+                                modifier = Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        // Don't show SIM badges in thread list per user request
+                    }
                     Text(
                         text = timeFormatter.format(Date(sms.timestamp)),
                         style = MaterialTheme.typography.bodySmall,
@@ -820,44 +856,56 @@ private suspend fun loadContactPhotoBitmap(
 }
 
 @Composable
-fun DefaultSmsDialog(
-    onDismiss: () -> Unit,
-    onSetAsDefault: (Boolean) -> Unit,
-    onCancel: (Boolean) -> Unit
+fun SetAsDefaultScreen(
+    onSetAsDefault: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    var dontAskAgain by remember { mutableStateOf(false) }
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(
+            imageVector = Icons.Default.Person,
+            contentDescription = null,
+            modifier = Modifier.size(120.dp),
+            tint = MaterialTheme.colorScheme.primary
+        )
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Set as Default SMS App") },
-        text = {
-            Column {
-                Text("Would you like to set Phalanx as your default SMS app? This allows Phalanx to send and receive messages.")
-                Spacer(modifier = Modifier.height(16.dp))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.clickable { dontAskAgain = !dontAskAgain }
-                ) {
-                    Checkbox(
-                        checked = dontAskAgain,
-                        onCheckedChange = { dontAskAgain = it }
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Don't ask again")
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = { onSetAsDefault(dontAskAgain) }) {
-                Text("Set as Default")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = { onCancel(dontAskAgain) }) {
-                Text("Not Now")
-            }
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Text(
+            text = "Set Phalanx as Default",
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Text(
+            text = "To use Phalanx, you need to set it as your default SMS app. This allows Phalanx to send and receive messages.",
+            style = MaterialTheme.typography.bodyLarge,
+            textAlign = TextAlign.Center,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        Spacer(modifier = Modifier.height(32.dp))
+
+        Button(
+            onClick = onSetAsDefault,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp)
+        ) {
+            Text(
+                text = "Open Settings",
+                style = MaterialTheme.typography.titleMedium
+            )
         }
-    )
+    }
 }
 
 @Composable
@@ -883,6 +931,73 @@ fun DeleteConfirmDialog(
                 Text("Delete")
             }
         },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+@Composable
+fun MuteConversationsDialog(
+    conversationCount: Int,
+    onMuteFor: (Long) -> Unit,
+    onUnmute: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Mute Conversation${if (conversationCount > 1) "s" else ""}?") },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    "Choose how long to mute ${if (conversationCount > 1) "these conversations" else "this conversation"}:",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+
+                TextButton(
+                    onClick = { onMuteFor(ConversationMutePreferences.MuteDuration.ONE_HOUR) },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("For 1 hour", modifier = Modifier.fillMaxWidth())
+                }
+
+                TextButton(
+                    onClick = { onMuteFor(ConversationMutePreferences.MuteDuration.ONE_DAY) },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("For 1 day", modifier = Modifier.fillMaxWidth())
+                }
+
+                TextButton(
+                    onClick = { onMuteFor(ConversationMutePreferences.MuteDuration.ONE_WEEK) },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("For 1 week", modifier = Modifier.fillMaxWidth())
+                }
+
+                TextButton(
+                    onClick = { onMuteFor(ConversationMutePreferences.MuteDuration.ALWAYS) },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Always", modifier = Modifier.fillMaxWidth())
+                }
+
+                androidx.compose.material3.HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+                TextButton(
+                    onClick = onUnmute,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Unmute", modifier = Modifier.fillMaxWidth())
+                }
+            }
+        },
+        confirmButton = {},
         dismissButton = {
             TextButton(onClick = onDismiss) {
                 Text("Cancel")

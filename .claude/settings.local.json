@@ -1,17 +1,16 @@
 {
   "permissions": {
     "allow": [
-      "Bash(./gradlew.bat assembleDebug)",
-      "Bash(java -version)",
-      "Bash(where java)",
-      "Bash(where javac)",
-      "Bash(dir \"C:\\Program Files\\Java\\jdk-25\\bin\\java.exe\")",
       "Bash(gradlew.bat assembleDebug)",
-      "Bash(Select-Object -First 100)",
-      "Bash(del \"C:\\Users\\Kite\\AndroidStudioProjects\\Phalanx\\app\\src\\main\\java\\com\\kite\\phalanx\\SmsDetailActivityTest.kt\")",
-      "Bash(rm \"C:\\Users\\Kite\\AndroidStudioProjects\\Phalanx\\app\\src\\main\\java\\com\\kite\\phalanx\\SmsDetailActivityTest.kt\")",
-      "Bash(adb logcat -c)",
-      "Bash(adb logcat -s AndroidRuntime:E SmsDetailActivity:* *:F)"
+      "Bash(cmd.exe /c gradlew.bat assembleDebug)",
+      "mcp__ide__getDiagnostics",
+      "Bash(./gradlew.bat clean assembleDebug)",
+      "Bash(./gradlew.bat assembleDebug)",
+      "WebSearch",
+      "WebFetch(domain:medium.com)",
+      "WebFetch(domain:stackoverflow.com)",
+      "Bash(cmd.exe /c \"gradlew.bat assembleDebug\")",
+      "Bash(cmd.exe /c \"gradlew.bat assembleDebug 2>&1 | tail -20\")"
     ],
     "deny": [],
     "ask": []
