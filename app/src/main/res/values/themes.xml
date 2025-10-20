@@ -1,4 +1,9 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Base application theme. -->
-    <style name="Theme.Phalanx" parent="android:Theme.DeviceDefault" />
+    <style name="Theme.Phalanx" parent="android:Theme.DeviceDefault.Light.NoActionBar">
+        <!-- Status bar color -->
+        <item name="android:statusBarColor">@android:color/white</item>
+        <!-- Dark status bar icons for light backgrounds (API 23+) -->
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
 </resources>
