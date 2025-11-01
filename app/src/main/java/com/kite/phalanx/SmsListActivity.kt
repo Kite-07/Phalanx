@@ -28,6 +28,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Done
@@ -35,6 +36,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
@@ -200,28 +202,40 @@ class SmsListActivity : ComponentActivity() {
                     }
                 }
 
-                // Content observer to watch for SMS database changes
+                // Content observers to watch for SMS and MMS database changes
                 DisposableEffect(context) {
-                    val smsObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
+                    val messageObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
                         override fun onChange(selfChange: Boolean) {
                             super.onChange(selfChange)
                             refreshSmsList()
                         }
                     }
 
+                    // Watch both SMS and MMS content URIs
                     context.contentResolver.registerContentObserver(
                         Telephony.Sms.CONTENT_URI,
                         true,
-                        smsObserver
+                        messageObserver
+                    )
+                    context.contentResolver.registerContentObserver(
+                        Telephony.Mms.CONTENT_URI,
+                        true,
+                        messageObserver
                     )
 
                     onDispose {
-                        context.contentResolver.unregisterContentObserver(smsObserver)
+                        context.contentResolver.unregisterContentObserver(messageObserver)
                     }
                 }
 
-                val filteredSmsList = remember(smsList, searchQuery) {
-                    if (searchQuery.isBlank()) {
+                // Load archived and pinned threads
+                val archivedThreads by ArchivedThreadsPreferences.getArchivedThreadsFlow(context)
+                    .collectAsState(initial = emptySet())
+                val pinnedThreads by PinnedThreadsPreferences.getPinnedThreadsFlow(context)
+                    .collectAsState(initial = emptyList())
+
+                val filteredSmsList = remember(smsList, searchQuery, archivedThreads, pinnedThreads) {
+                    val filtered = if (searchQuery.isBlank()) {
                         smsList
                     } else {
                         smsList.filter { sms ->
@@ -230,6 +244,18 @@ class SmsListActivity : ComponentActivity() {
                                     (sms.contactName?.contains(searchQuery, ignoreCase = true) == true)
                         }
                     }
+
+                    // Filter out archived threads (unless searching, then show all)
+                    val nonArchivedFiltered = if (searchQuery.isBlank()) {
+                        filtered.filter { it.sender !in archivedThreads }
+                    } else {
+                        filtered
+                    }
+
+                    // Sort: pinned threads first (in order), then the rest
+                    val (pinned, unpinned) = nonArchivedFiltered.partition { it.sender in pinnedThreads }
+                    val sortedPinned = pinned.sortedBy { pinnedThreads.indexOf(it.sender) }
+                    sortedPinned + unpinned
                 }
 
                 // Determine if selected threads should be marked as read or unread
@@ -238,6 +264,11 @@ class SmsListActivity : ComponentActivity() {
                 }
                 val allSelectedAreRead = remember(selectedThreadsData) {
                     selectedThreadsData.isNotEmpty() && selectedThreadsData.all { it.unreadCount == 0 }
+                }
+
+                // Determine if all selected threads are pinned
+                val allSelectedArePinned = remember(selectedThreads, pinnedThreads) {
+                    selectedThreads.isNotEmpty() && selectedThreads.all { it in pinnedThreads }
                 }
 
                 Scaffold(
@@ -287,6 +318,36 @@ class SmsListActivity : ComponentActivity() {
                                         )
                                     }
                                     IconButton(onClick = {
+                                        coroutineScope.launch {
+                                            selectedThreads.forEach { sender ->
+                                                ArchivedThreadsPreferences.archiveThread(context, sender)
+                                            }
+                                            selectedThreads = emptySet()
+                                            refreshSmsList()
+                                        }
+                                    }) {
+                                        Icon(Icons.Default.Archive, contentDescription = "Archive")
+                                    }
+                                    // Smart button: Unpin if all selected are pinned, otherwise pin
+                                    IconButton(onClick = {
+                                        coroutineScope.launch {
+                                            selectedThreads.forEach { sender ->
+                                                if (allSelectedArePinned) {
+                                                    PinnedThreadsPreferences.unpinThread(context, sender)
+                                                } else {
+                                                    PinnedThreadsPreferences.pinThread(context, sender)
+                                                }
+                                            }
+                                            selectedThreads = emptySet()
+                                            refreshSmsList()
+                                        }
+                                    }) {
+                                        Icon(
+                                            Icons.Default.PushPin,
+                                            contentDescription = if (allSelectedArePinned) "Unpin" else "Pin"
+                                        )
+                                    }
+                                    IconButton(onClick = {
                                         showDeleteConfirmDialog = true
                                     }) {
                                         Icon(Icons.Default.Delete, contentDescription = "Delete")
@@ -323,6 +384,16 @@ class SmsListActivity : ComponentActivity() {
                                             },
                                             leadingIcon = {
                                                 Icon(Icons.Default.Settings, contentDescription = null)
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Archived") },
+                                            onClick = {
+                                                showOverflowMenu = false
+                                                startActivity(Intent(this@SmsListActivity, ArchivedMessagesActivity::class.java))
+                                            },
+                                            leadingIcon = {
+                                                Icon(Icons.Default.Archive, contentDescription = null)
                                             }
                                         )
                                         DropdownMenuItem(
@@ -477,71 +548,30 @@ class SmsListActivity : ComponentActivity() {
 
     private suspend fun readSmsMessages(): List<SmsMessage> = withContext(Dispatchers.IO) {
         try {
-            val projection = arrayOf(
-                Telephony.Sms.ADDRESS,
-                Telephony.Sms.BODY,
-                Telephony.Sms.DATE,
-                Telephony.Sms.TYPE,
-                Telephony.Sms.SUBSCRIPTION_ID
-            )
+            // Load all conversations (both SMS and MMS) using MessageLoader
+            val latestByAddress = MessageLoader.loadConversationList(this@SmsListActivity)
 
-            val cursor = contentResolver.query(
-                Telephony.Sms.CONTENT_URI,
-                projection,
-                null,
-                null,
-                "${Telephony.Sms.DATE} DESC"
-            )
-
-            val latestByAddress = LinkedHashMap<String, SmsMessage>()
-            cursor?.use {
-                val indexAddress = it.getColumnIndex(Telephony.Sms.ADDRESS)
-                val indexBody = it.getColumnIndex(Telephony.Sms.BODY)
-                val indexDate = it.getColumnIndex(Telephony.Sms.DATE)
-                val indexType = it.getColumnIndex(Telephony.Sms.TYPE)
-                val indexSubId = it.getColumnIndex(Telephony.Sms.SUBSCRIPTION_ID)
-
-                while (it.moveToNext()) {
-                    try {
-                        val address = it.getString(indexAddress)?.takeIf { addr -> addr.isNotBlank() }
-                            ?: continue
-                        if (latestByAddress.containsKey(address)) continue
-
-                        // Skip blocked numbers - they should only appear in spam folder
-                        if (SmsOperations.isNumberBlocked(this@SmsListActivity, address)) continue
-
-                        val body = it.getString(indexBody).orEmpty()
-                        val timestamp = it.getLong(indexDate)
-                        val messageType = it.getInt(indexType)
-                        val subId = if (indexSubId >= 0) it.getInt(indexSubId) else -1
-                        val contactPhotoUri =
-                            if (hasContactPermission()) lookupContactPhotoUri(address) else null
-                        val contactName = lookupContactName(address)
-                        val unreadCount = SmsOperations.getUnreadCount(this@SmsListActivity, address)
-                        val draftText = try {
-                            DraftsManager.getDraftSync(this@SmsListActivity, address)
-                        } catch (e: Exception) {
-                            null
-                        }
-
-                        latestByAddress[address] = SmsMessage(
-                            sender = address,
-                            body = body,
-                            timestamp = timestamp,
-                            isSentByUser = isUserMessage(messageType),
-                            contactPhotoUri = contactPhotoUri,
-                            unreadCount = unreadCount,
-                            contactName = formatDisplayName(address, contactName),
-                            draftText = draftText,
-                            subscriptionId = subId
-                        )
-                    } catch (e: Exception) {
-                        continue
-                    }
+            // Enrich with contact info, unread count, and drafts
+            val enrichedMessages = latestByAddress.map { (address, message) ->
+                val contactPhotoUri =
+                    if (hasContactPermission()) lookupContactPhotoUri(address) else null
+                val contactName = lookupContactName(address)
+                val unreadCount = SmsOperations.getUnreadCount(this@SmsListActivity, address)
+                val draftText = try {
+                    DraftsManager.getDraftSync(this@SmsListActivity, address)
+                } catch (e: Exception) {
+                    null
                 }
+
+                message.copy(
+                    contactPhotoUri = contactPhotoUri,
+                    unreadCount = unreadCount,
+                    contactName = formatDisplayName(address, contactName),
+                    draftText = draftText
+                )
             }
 
-            return@withContext latestByAddress.values.sortedByDescending { it.timestamp }
+            return@withContext enrichedMessages.sortedByDescending { it.timestamp }
         } catch (e: Exception) {
             return@withContext emptyList()
         }
@@ -648,18 +678,50 @@ fun SmsListScreen(
     onThreadLongClick: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    LazyColumn(modifier = modifier) {
-        items(
-            items = smsList,
-            key = { it.sender }
-        ) { sms ->
-            SmsCard(
-                sms = sms,
-                isSelected = sms.sender in selectedThreads,
-                isSelectionMode = isSelectionMode,
-                onClick = { onThreadClick(sms.sender) },
-                onLongClick = { onThreadLongClick(sms.sender) }
-            )
+    if (smsList.isEmpty()) {
+        // Empty state
+        Box(
+            modifier = modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier.padding(32.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Person,
+                    contentDescription = null,
+                    modifier = Modifier.size(80.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                )
+                Text(
+                    text = "No conversations yet",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = "Tap the + button below to start a new conversation",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+    } else {
+        LazyColumn(modifier = modifier) {
+            items(
+                items = smsList,
+                key = { it.sender }
+            ) { sms ->
+                SmsCard(
+                    sms = sms,
+                    isSelected = sms.sender in selectedThreads,
+                    isSelectionMode = isSelectionMode,
+                    onClick = { onThreadClick(sms.sender) },
+                    onLongClick = { onThreadLongClick(sms.sender) }
+                )
+            }
         }
     }
 }
@@ -703,6 +765,10 @@ fun SmsCard(
 
     // Check if conversation is muted
     val isMuted by ConversationMutePreferences.isConversationMutedFlow(context, sms.sender)
+        .collectAsState(initial = false)
+
+    // Check if conversation is pinned
+    val isPinned by PinnedThreadsPreferences.isThreadPinnedFlow(context, sms.sender)
         .collectAsState(initial = false)
 
     Card(
@@ -760,6 +826,15 @@ fun SmsCard(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f, fill = false)
                         )
+                        if (isPinned) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Icon(
+                                imageVector = Icons.Default.PushPin,
+                                contentDescription = "Pinned",
+                                modifier = Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
                         if (isMuted) {
                             Spacer(modifier = Modifier.width(6.dp))
                             Icon(

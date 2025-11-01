@@ -9,6 +9,7 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.telephony.SmsManager
+import android.util.Log
 import android.widget.Toast
 import androidx.core.content.ContextCompat
 
@@ -16,6 +17,7 @@ import androidx.core.content.ContextCompat
  * Helper class for sending SMS messages
  */
 object SmsHelper {
+    private const val TAG = "SmsHelper"
     private const val ACTION_SMS_SENT = "com.kite.phalanx.SMS_SENT"
     private const val ACTION_SMS_DELIVERED = "com.kite.phalanx.SMS_DELIVERED"
 
@@ -54,6 +56,17 @@ object SmsHelper {
         }
 
         try {
+            // Write to database FIRST if we're the default SMS app
+            // This gives us a message URI to track status updates
+            val messageUri = if (isDefaultSmsApp) {
+                val uri = SmsOperations.writeSentSms(context, recipient, message, System.currentTimeMillis(), subscriptionId)
+                Log.d(TAG, "Wrote message to database with URI: $uri")
+                uri
+            } else {
+                Log.w(TAG, "Not default SMS app, message won't be tracked")
+                null
+            }
+
             // Get SmsManager - use subscription-specific if provided, otherwise default
             val smsManager = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 // Android 12+ - use system service
@@ -84,89 +97,37 @@ object SmsHelper {
             }
 
             // Create pending intents for sent and delivered status
-            val sentIntent = PendingIntent.getBroadcast(
-                context,
-                0,
-                Intent(ACTION_SMS_SENT),
-                PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
-            )
-
-            val deliveredIntent = PendingIntent.getBroadcast(
-                context,
-                0,
-                Intent(ACTION_SMS_DELIVERED),
-                PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
-            )
-
-            // Register receivers for sent and delivered status (one-time use)
-            val sentReceiver = object : BroadcastReceiver() {
-                override fun onReceive(ctx: Context?, intent: Intent?) {
-                    when (resultCode) {
-                        android.app.Activity.RESULT_OK -> {
-                            Toast.makeText(context, "Message sent", Toast.LENGTH_SHORT).show()
-
-                            // If we're the default SMS app, write the sent message to the database
-                            // Check both package and role (for Android 10+)
-                            val shouldWriteToDb = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                                try {
-                                    val roleManager = context.getSystemService(android.app.role.RoleManager::class.java)
-                                    roleManager?.isRoleHeld(android.app.role.RoleManager.ROLE_SMS) ?: false
-                                } catch (e: Exception) {
-                                    false
-                                }
-                            } else {
-                                android.provider.Telephony.Sms.getDefaultSmsPackage(context) == context.packageName
-                            }
-
-                            if (shouldWriteToDb) {
-                                SmsOperations.writeSentSms(context, recipient, message, System.currentTimeMillis(), subscriptionId)
-                            }
-                        }
-                        SmsManager.RESULT_ERROR_GENERIC_FAILURE -> {
-                            Toast.makeText(context, "Failed to send SMS", Toast.LENGTH_SHORT).show()
-                        }
-                        SmsManager.RESULT_ERROR_NO_SERVICE -> {
-                            Toast.makeText(context, "No service", Toast.LENGTH_SHORT).show()
-                        }
-                        SmsManager.RESULT_ERROR_NULL_PDU -> {
-                            Toast.makeText(context, "Null PDU", Toast.LENGTH_SHORT).show()
-                        }
-                        SmsManager.RESULT_ERROR_RADIO_OFF -> {
-                            Toast.makeText(context, "Radio off", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                    try {
-                        context.unregisterReceiver(this)
-                    } catch (e: IllegalArgumentException) {
-                        // Receiver already unregistered
-                    }
+            // Include message URI so SmsSentReceiver can update the specific message
+            // Use EXPLICIT intents to avoid implicit broadcast restrictions
+            val sentIntent = if (messageUri != null) {
+                val intent = Intent(ACTION_SMS_SENT).apply {
+                    setClass(context, SmsSentReceiver::class.java)
+                    putExtra(SmsSentReceiver.EXTRA_MESSAGE_URI, messageUri.toString())
                 }
-            }
-
-            val deliveredReceiver = object : BroadcastReceiver() {
-                override fun onReceive(ctx: Context?, intent: Intent?) {
-                    when (resultCode) {
-                        android.app.Activity.RESULT_OK -> {
-                            Toast.makeText(context, "Message delivered", Toast.LENGTH_SHORT).show()
-                        }
-                        android.app.Activity.RESULT_CANCELED -> {
-                            Toast.makeText(context, "SMS not delivered", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                    try {
-                        context.unregisterReceiver(this)
-                    } catch (e: IllegalArgumentException) {
-                        // Receiver already unregistered
-                    }
-                }
-            }
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                context.registerReceiver(sentReceiver, IntentFilter(ACTION_SMS_SENT), Context.RECEIVER_NOT_EXPORTED)
-                context.registerReceiver(deliveredReceiver, IntentFilter(ACTION_SMS_DELIVERED), Context.RECEIVER_NOT_EXPORTED)
+                Log.d(TAG, "Creating sentIntent for URI: $messageUri")
+                PendingIntent.getBroadcast(
+                    context,
+                    messageUri.hashCode(),
+                    intent,
+                    PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
+                )
             } else {
-                context.registerReceiver(sentReceiver, IntentFilter(ACTION_SMS_SENT))
-                context.registerReceiver(deliveredReceiver, IntentFilter(ACTION_SMS_DELIVERED))
+                null
+            }
+
+            val deliveredIntent = if (messageUri != null) {
+                val intent = Intent(ACTION_SMS_DELIVERED).apply {
+                    setClass(context, SmsSentReceiver::class.java)
+                    putExtra(SmsSentReceiver.EXTRA_MESSAGE_URI, messageUri.toString())
+                }
+                PendingIntent.getBroadcast(
+                    context,
+                    messageUri.hashCode() + 1,
+                    intent,
+                    PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
+                )
+            } else {
+                null
             }
 
             // Split message if it's too long (standard SMS is 160 characters)
@@ -175,6 +136,7 @@ object SmsHelper {
             if (parts.size == 1) {
                 // Send single SMS
                 try {
+                    Log.d(TAG, "Sending SMS to $recipient with URI tracking: ${messageUri != null}")
                     smsManager.sendTextMessage(
                         recipient,
                         null,
@@ -182,10 +144,13 @@ object SmsHelper {
                         sentIntent,
                         deliveredIntent
                     )
+                    Log.d(TAG, "SMS sent successfully")
                 } catch (e: IllegalArgumentException) {
+                    Log.e(TAG, "Invalid phone number or message", e)
                     Toast.makeText(context, "Invalid phone number or message", Toast.LENGTH_SHORT).show()
                     return
                 } catch (e: Exception) {
+                    Log.e(TAG, "Error sending SMS", e)
                     throw e
                 }
             } else {
@@ -193,16 +158,16 @@ object SmsHelper {
                 val sentIntents = ArrayList<PendingIntent>()
                 val deliveredIntents = ArrayList<PendingIntent>()
                 for (i in parts.indices) {
-                    sentIntents.add(sentIntent)
-                    deliveredIntents.add(deliveredIntent)
+                    sentIntent?.let { sentIntents.add(it) }
+                    deliveredIntent?.let { deliveredIntents.add(it) }
                 }
                 try {
                     smsManager.sendMultipartTextMessage(
                         recipient,
                         null,
                         parts,
-                        sentIntents,
-                        deliveredIntents
+                        if (sentIntents.isNotEmpty()) sentIntents else null,
+                        if (deliveredIntents.isNotEmpty()) deliveredIntents else null
                     )
                 } catch (e: IllegalArgumentException) {
                     Toast.makeText(context, "Invalid phone number or message", Toast.LENGTH_SHORT).show()
@@ -210,12 +175,6 @@ object SmsHelper {
                 } catch (e: Exception) {
                     throw e
                 }
-            }
-
-            // Write to database immediately if we're the default SMS app
-            // This ensures the message appears in the UI even if broadcast receiver doesn't fire
-            if (isDefaultSmsApp) {
-                SmsOperations.writeSentSms(context, recipient, message, System.currentTimeMillis(), subscriptionId)
             }
 
             Toast.makeText(context, "Sending message...", Toast.LENGTH_SHORT).show()

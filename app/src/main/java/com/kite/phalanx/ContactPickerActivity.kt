@@ -164,6 +164,13 @@ class ContactPickerActivity : ComponentActivity() {
     private fun openSmsDetail(phoneNumber: String) {
         val intent = Intent(this, SmsDetailActivity::class.java)
         intent.putExtra("sender", phoneNumber)
+
+        // Forward message if provided
+        val forwardMessage = getIntent().getStringExtra("forward_message")
+        if (forwardMessage != null) {
+            intent.putExtra("prefill_message", forwardMessage)
+        }
+
         startActivity(intent)
         finish()
     }

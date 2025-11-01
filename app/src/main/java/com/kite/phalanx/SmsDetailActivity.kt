@@ -1,6 +1,7 @@
 package com.kite.phalanx
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.database.ContentObserver
 import android.graphics.BitmapFactory
@@ -12,6 +13,7 @@ import android.provider.ContactsContract
 import android.provider.Telephony
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.lifecycle.lifecycleScope
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -29,6 +31,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -41,12 +44,18 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MailOutline
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.automirrored.filled.Reply
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Archive
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -79,6 +88,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -100,6 +111,7 @@ class SmsDetailActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val sender = intent.getStringExtra("sender") ?: "Unknown Sender"
+        val prefillMessage = intent.getStringExtra("prefill_message")
 
         setContent {
             PhalanxTheme {
@@ -126,7 +138,7 @@ class SmsDetailActivity : ComponentActivity() {
                     }
                 }
 
-                // Observe SMS database changes
+                // Observe SMS and MMS database changes
                 DisposableEffect(Unit) {
                     val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
                         override fun onChange(selfChange: Boolean) {
@@ -139,8 +151,14 @@ class SmsDetailActivity : ComponentActivity() {
                         }
                     }
 
+                    // Watch both SMS and MMS content URIs
                     contentResolver.registerContentObserver(
                         Telephony.Sms.CONTENT_URI,
+                        true,
+                        observer
+                    )
+                    contentResolver.registerContentObserver(
+                        Telephony.Mms.CONTENT_URI,
                         true,
                         observer
                     )
@@ -159,18 +177,46 @@ class SmsDetailActivity : ComponentActivity() {
                     }
                 }.collectAsState(initial = "")
 
-                var messageText by remember { mutableStateOf("") }
+                var messageText by remember { mutableStateOf(prefillMessage ?: "") }
+
+                // Set draft as message text if no prefill and draft exists
+                LaunchedEffect(savedDraft) {
+                    if (prefillMessage == null && savedDraft.isNotBlank() && messageText.isBlank()) {
+                        messageText = savedDraft
+                    }
+                }
                 var showMenu by remember { mutableStateOf(false) }
                 var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+                var attachments by remember { mutableStateOf<List<SelectedAttachment>>(emptyList()) }
 
                 // Message selection state
                 var selectedMessages by remember { mutableStateOf<Set<Long>>(emptySet()) }
                 val isSelectionMode = selectedMessages.isNotEmpty()
                 var showDeleteSelectedConfirmDialog by remember { mutableStateOf(false) }
+                var showMessageActionsMenu by remember { mutableStateOf(false) }
+
+                // Reply state
+                var replyingToMessage by remember { mutableStateOf<SmsMessage?>(null) }
+
+                // Pin message state
+                var showPinDurationDialog by remember { mutableStateOf(false) }
+                var messageToPinTimestamp by remember { mutableStateOf<Long?>(null) }
+                var showUnpinConfirmDialog by remember { mutableStateOf(false) }
+                var messageToUnpinTimestamp by remember { mutableStateOf<Long?>(null) }
+
+                // Load pinned messages for this conversation
+                val pinnedMessages by PinnedMessagesPreferences.getPinnedMessagesForSender(this@SmsDetailActivity, sender)
+                    .collectAsState(initial = emptyList())
 
                 // Block state
                 var isBlocked by remember { mutableStateOf(SmsOperations.isNumberBlocked(this@SmsDetailActivity, sender)) }
                 var showBlockConfirmDialog by remember { mutableStateOf(false) }
+
+                // Archive/Pin state
+                val isArchived by ArchivedThreadsPreferences.isThreadArchivedFlow(this@SmsDetailActivity, sender)
+                    .collectAsState(initial = false)
+                val isPinned by PinnedThreadsPreferences.isThreadPinnedFlow(this@SmsDetailActivity, sender)
+                    .collectAsState(initial = false)
 
                 // Restore draft when screen opens
                 LaunchedEffect(savedDraft) {
@@ -242,8 +288,86 @@ class SmsDetailActivity : ComponentActivity() {
                             },
                             actions = {
                                 if (isSelectionMode) {
-                                    IconButton(onClick = { showDeleteSelectedConfirmDialog = true }) {
-                                        Icon(Icons.Default.Delete, contentDescription = "Delete selected")
+                                    // Get selected message(s) for actions
+                                    val selectedMessagesList = messages.filter { selectedMessages.contains(it.timestamp) }
+                                    val singleMessageSelected = selectedMessagesList.size == 1
+                                    val firstSelectedMessage = selectedMessagesList.firstOrNull()
+
+                                    // Reply button (only for single message)
+                                    if (singleMessageSelected && firstSelectedMessage != null) {
+                                        IconButton(onClick = {
+                                            // Set the message being replied to
+                                            replyingToMessage = firstSelectedMessage
+                                            selectedMessages = emptySet()
+                                            // TODO: Scroll to bottom/composer and focus
+                                        }) {
+                                            Icon(Icons.AutoMirrored.Filled.Reply, contentDescription = "Reply")
+                                        }
+                                    }
+
+                                    // Copy button (only if all selected have text)
+                                    if (selectedMessagesList.all { it.body.isNotBlank() }) {
+                                        IconButton(onClick = {
+                                            val textToCopy = if (selectedMessagesList.size == 1) {
+                                                selectedMessagesList.first().body
+                                            } else {
+                                                selectedMessagesList.joinToString("\n\n") { it.body }
+                                            }
+                                            val clipboard = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                            val clip = android.content.ClipData.newPlainText("Messages", textToCopy)
+                                            clipboard.setPrimaryClip(clip)
+                                            selectedMessages = emptySet()
+                                            android.widget.Toast.makeText(this@SmsDetailActivity, "Copied to clipboard", android.widget.Toast.LENGTH_SHORT).show()
+                                        }) {
+                                            Icon(Icons.Default.ContentCopy, contentDescription = "Copy")
+                                        }
+                                    }
+
+                                    // Forward button (only for single message with text)
+                                    if (singleMessageSelected && firstSelectedMessage?.body?.isNotBlank() == true) {
+                                        IconButton(onClick = {
+                                            val intent = Intent(this@SmsDetailActivity, ContactPickerActivity::class.java)
+                                            intent.putExtra("forward_message", firstSelectedMessage.body)
+                                            startActivity(intent)
+                                            selectedMessages = emptySet()
+                                        }) {
+                                            Icon(Icons.Default.Share, contentDescription = "Forward")
+                                        }
+                                    }
+
+                                    // Overflow menu for more actions
+                                    IconButton(onClick = { showMessageActionsMenu = true }) {
+                                        Icon(Icons.Default.MoreVert, contentDescription = "More options")
+                                    }
+                                    DropdownMenu(
+                                        expanded = showMessageActionsMenu,
+                                        onDismissRequest = { showMessageActionsMenu = false }
+                                    ) {
+                                        // Pin message (only for single message)
+                                        if (singleMessageSelected && firstSelectedMessage != null) {
+                                            DropdownMenuItem(
+                                                text = { Text("Pin message") },
+                                                onClick = {
+                                                    showMessageActionsMenu = false
+                                                    messageToPinTimestamp = firstSelectedMessage.timestamp
+                                                    showPinDurationDialog = true
+                                                },
+                                                leadingIcon = {
+                                                    Icon(Icons.Default.PushPin, contentDescription = null)
+                                                }
+                                            )
+                                        }
+
+                                        DropdownMenuItem(
+                                            text = { Text("Delete") },
+                                            onClick = {
+                                                showMessageActionsMenu = false
+                                                showDeleteSelectedConfirmDialog = true
+                                            },
+                                            leadingIcon = {
+                                                Icon(Icons.Default.Delete, contentDescription = null)
+                                            }
+                                        )
                                     }
                                 } else {
                                     IconButton(onClick = { showMenu = true }) {
@@ -264,6 +388,39 @@ class SmsDetailActivity : ComponentActivity() {
                                                 },
                                                 leadingIcon = {
                                                     Icon(Icons.Default.MailOutline, contentDescription = null)
+                                                }
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text(if (isArchived) "Unarchive" else "Archive") },
+                                                onClick = {
+                                                    showMenu = false
+                                                    lifecycleScope.launch {
+                                                        if (isArchived) {
+                                                            ArchivedThreadsPreferences.unarchiveThread(this@SmsDetailActivity, sender)
+                                                        } else {
+                                                            ArchivedThreadsPreferences.archiveThread(this@SmsDetailActivity, sender)
+                                                            finish() // Close conversation after archiving
+                                                        }
+                                                    }
+                                                },
+                                                leadingIcon = {
+                                                    Icon(Icons.Default.Archive, contentDescription = null)
+                                                }
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text(if (isPinned) "Unpin" else "Pin") },
+                                                onClick = {
+                                                    showMenu = false
+                                                    lifecycleScope.launch {
+                                                        if (isPinned) {
+                                                            PinnedThreadsPreferences.unpinThread(this@SmsDetailActivity, sender)
+                                                        } else {
+                                                            PinnedThreadsPreferences.pinThread(this@SmsDetailActivity, sender)
+                                                        }
+                                                    }
+                                                },
+                                                leadingIcon = {
+                                                    Icon(Icons.Default.PushPin, contentDescription = null)
                                                 }
                                             )
                                             DropdownMenuItem(
@@ -311,7 +468,16 @@ class SmsDetailActivity : ComponentActivity() {
                             }
                         }
 
-                        MessageComposer(
+                        Column {
+                            // Reply preview above composer
+                            replyingToMessage?.let { replyMsg ->
+                                ReplyPreview(
+                                    message = replyMsg,
+                                    onDismiss = { replyingToMessage = null }
+                                )
+                            }
+
+                            MessageComposer(
                             message = messageText,
                             onMessageChange = { newText ->
                                 messageText = newText
@@ -325,22 +491,40 @@ class SmsDetailActivity : ComponentActivity() {
                                 }
                             },
                             onSendClick = {
-                                if (messageText.isNotBlank()) {
+                                val hasContent = messageText.isNotBlank() || attachments.isNotEmpty()
+                                if (hasContent) {
                                     scope.launch {
                                         val messageToSend = messageText
+                                        val attachmentsToSend = attachments.toList()
                                         // Get SIM to use for this conversation
                                         val subId = SimPreferences.getSimForConversation(this@SmsDetailActivity, sender)
+
                                         try {
-                                            SmsHelper.sendSms(
-                                                context = this@SmsDetailActivity,
-                                                recipient = sender,
-                                                message = messageToSend,
-                                                subscriptionId = subId
-                                            )
+                                            if (attachmentsToSend.isNotEmpty()) {
+                                                // Send as MMS if there are attachments
+                                                MmsSender.sendMms(
+                                                    context = this@SmsDetailActivity,
+                                                    recipient = sender,
+                                                    text = if (messageToSend.isBlank()) null else messageToSend,
+                                                    attachments = attachmentsToSend,
+                                                    subscriptionId = subId
+                                                )
+                                            } else {
+                                                // Send as SMS if no attachments
+                                                SmsHelper.sendSms(
+                                                    context = this@SmsDetailActivity,
+                                                    recipient = sender,
+                                                    message = messageToSend,
+                                                    subscriptionId = subId
+                                                )
+                                            }
                                         } catch (e: Exception) {
                                             // Silently handle error
                                         }
+
                                         messageText = ""
+                                        attachments = emptyList()
+
                                         // Delete draft after sending
                                         try {
                                             DraftsManager.deleteDraft(this@SmsDetailActivity, sender)
@@ -355,11 +539,19 @@ class SmsDetailActivity : ComponentActivity() {
                             },
                             onSendLongClick = {
                                 // Show SIM selector if there are active SIMs
-                                if (activeSims.isNotEmpty() && messageText.isNotBlank()) {
+                                val hasContent = messageText.isNotBlank() || attachments.isNotEmpty()
+                                if (activeSims.isNotEmpty() && hasContent) {
                                     showSimSelector = true
                                 }
                             },
-                            hasMultipleSims = hasMultipleSims
+                            hasMultipleSims = hasMultipleSims,
+                            attachments = attachments,
+                            onAttachmentSelected = { attachment ->
+                                attachments = attachments + attachment
+                            },
+                            onAttachmentRemoved = { attachment ->
+                                attachments = attachments.filter { it != attachment }
+                            }
                         )
 
                         if (showSimSelector) {
@@ -368,24 +560,43 @@ class SmsDetailActivity : ComponentActivity() {
                                 selectedSubscriptionId = currentSimId,
                                 onSimSelected = { selectedSubId, setAsDefault ->
                                     showSimSelector = false
-                                    if (messageText.isNotBlank()) {
+                                    val hasContent = messageText.isNotBlank() || attachments.isNotEmpty()
+                                    if (hasContent) {
                                         scope.launch {
                                             val messageToSend = messageText
+                                            val attachmentsToSend = attachments.toList()
+
                                             // Save as default for this conversation if checkbox was checked
                                             if (setAsDefault) {
                                                 SimPreferences.setConversationSim(this@SmsDetailActivity, sender, selectedSubId)
                                             }
+
                                             try {
-                                                SmsHelper.sendSms(
-                                                    context = this@SmsDetailActivity,
-                                                    recipient = sender,
-                                                    message = messageToSend,
-                                                    subscriptionId = selectedSubId
-                                                )
+                                                if (attachmentsToSend.isNotEmpty()) {
+                                                    // Send as MMS if there are attachments
+                                                    MmsSender.sendMms(
+                                                        context = this@SmsDetailActivity,
+                                                        recipient = sender,
+                                                        text = if (messageToSend.isBlank()) null else messageToSend,
+                                                        attachments = attachmentsToSend,
+                                                        subscriptionId = selectedSubId
+                                                    )
+                                                } else {
+                                                    // Send as SMS if no attachments
+                                                    SmsHelper.sendSms(
+                                                        context = this@SmsDetailActivity,
+                                                        recipient = sender,
+                                                        message = messageToSend,
+                                                        subscriptionId = selectedSubId
+                                                    )
+                                                }
                                             } catch (e: Exception) {
                                                 // Silently handle error
                                             }
+
                                             messageText = ""
+                                            attachments = emptyList()
+
                                             // Delete draft after sending
                                             try {
                                                 DraftsManager.deleteDraft(this@SmsDetailActivity, sender)
@@ -400,6 +611,7 @@ class SmsDetailActivity : ComponentActivity() {
                                 },
                                 onDismiss = { showSimSelector = false }
                             )
+                        }
                         }
                     }
                 ) { innerPadding ->
@@ -418,52 +630,120 @@ class SmsDetailActivity : ComponentActivity() {
                     }
 
                     Box(modifier = Modifier.padding(innerPadding)) {
-                        SmsDetailScreen(
-                            messageUiModels = messageUiModels,
-                            selectedMessages = selectedMessages,
-                            scrollToIndex = scrollToIndex,
-                            onMessageLongClick = { timestamp ->
-                                selectedMessages = if (selectedMessages.contains(timestamp)) {
-                                    selectedMessages - timestamp
-                                } else {
-                                    selectedMessages + timestamp
-                                }
-                            },
-                            onMessageClick = { timestamp ->
-                                if (isSelectionMode) {
-                                    selectedMessages = if (selectedMessages.contains(timestamp)) {
-                                        selectedMessages - timestamp
-                                    } else {
-                                        selectedMessages + timestamp
+                        Column(modifier = Modifier.fillMaxSize()) {
+                            // Pinned messages block (persistent, doesn't scroll)
+                            if (pinnedMessages.isNotEmpty()) {
+                                PinnedMessagesBlock(
+                                    pinnedMessages = pinnedMessages,
+                                    onPinnedMessageClick = { pinnedMessage ->
+                                        // Scroll to the message in the conversation
+                                        val messageIndex = messageUiModels.indexOfFirst {
+                                            it.message.timestamp == pinnedMessage.messageTimestamp
+                                        }
+                                        if (messageIndex >= 0) {
+                                            scope.launch {
+                                                listState.animateScrollToItem(messageIndex)
+                                            }
+                                        }
+                                    },
+                                    onPinnedMessageLongClick = { pinnedMessage ->
+                                        messageToUnpinTimestamp = pinnedMessage.messageTimestamp
+                                        showUnpinConfirmDialog = true
                                     }
-                                }
-                            },
-                            listState = listState,
-                            modifier = Modifier.fillMaxSize()
-                        )
+                                )
+                            }
 
-                        // Scroll to bottom FAB
-                        AnimatedVisibility(
-                            visible = showScrollToBottom,
-                            enter = fadeIn() + scaleIn(),
-                            exit = fadeOut() + scaleOut(),
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .padding(bottom = 16.dp)
-                        ) {
-                            SmallFloatingActionButton(
-                                onClick = {
-                                    scope.launch {
-                                        listState.animateScrollToItem(messageUiModels.size - 1)
+                            // Message list (scrollable)
+                            Box(modifier = Modifier.weight(1f)) {
+                            SmsDetailScreen(
+                                messageUiModels = messageUiModels,
+                                selectedMessages = selectedMessages,
+                                scrollToIndex = scrollToIndex,
+                                onMessageLongClick = { message ->
+                                    // Long-press always toggles selection (enters or modifies selection mode)
+                                    selectedMessages = if (selectedMessages.contains(message.timestamp)) {
+                                        selectedMessages - message.timestamp
+                                    } else {
+                                        selectedMessages + message.timestamp
                                     }
                                 },
-                                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                onMessageClick = { message ->
+                                    if (isSelectionMode) {
+                                        // In selection mode, click toggles selection
+                                        selectedMessages = if (selectedMessages.contains(message.timestamp)) {
+                                            selectedMessages - message.timestamp
+                                        } else {
+                                            selectedMessages + message.timestamp
+                                        }
+                                    }
+                                },
+                                listState = listState,
+                                modifier = Modifier.fillMaxSize(),
+                                onRetry = { failedMessage ->
+                                    scope.launch {
+                                        // Delete the failed message
+                                        SmsOperations.deleteMessage(
+                                            context = this@SmsDetailActivity,
+                                            sender = failedMessage.sender,
+                                            timestamp = failedMessage.timestamp
+                                        )
+
+                                        // Resend the message
+                                        if (failedMessage.isMms && failedMessage.attachments.isNotEmpty()) {
+                                            // Retry as MMS
+                                            MmsSender.sendMms(
+                                                context = this@SmsDetailActivity,
+                                                recipient = sender,
+                                                text = if (failedMessage.body.isBlank()) null else failedMessage.body,
+                                                attachments = failedMessage.attachments.map { attachment ->
+                                                    SelectedAttachment(
+                                                        uri = attachment.uri,
+                                                        mimeType = attachment.contentType,
+                                                        fileName = attachment.fileName
+                                                    )
+                                                },
+                                                subscriptionId = failedMessage.subscriptionId
+                                            )
+                                        } else {
+                                            // Retry as SMS
+                                            SmsHelper.sendSms(
+                                                context = this@SmsDetailActivity,
+                                                recipient = sender,
+                                                message = failedMessage.body,
+                                                subscriptionId = failedMessage.subscriptionId
+                                            )
+                                        }
+
+                                        // Refresh messages after a short delay
+                                        kotlinx.coroutines.delay(500)
+                                        refreshTrigger++
+                                    }
+                                }
+                            )
+
+                            // Scroll to bottom FAB
+                            androidx.compose.animation.AnimatedVisibility(
+                                visible = showScrollToBottom,
+                                enter = fadeIn() + scaleIn(),
+                                exit = fadeOut() + scaleOut(),
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .padding(bottom = 16.dp)
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.KeyboardArrowDown,
-                                    contentDescription = "Scroll to bottom"
-                                )
+                                SmallFloatingActionButton(
+                                    onClick = {
+                                        scope.launch {
+                                            listState.animateScrollToItem(messageUiModels.size - 1)
+                                        }
+                                    },
+                                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.KeyboardArrowDown,
+                                        contentDescription = "Scroll to bottom"
+                                    )
+                                }
                             }
                         }
                     }
@@ -530,6 +810,109 @@ class SmsDetailActivity : ComponentActivity() {
                     )
                 }
 
+                // Pin duration selection dialog
+                if (showPinDurationDialog && messageToPinTimestamp != null) {
+                    val messageToPin = messages.find { it.timestamp == messageToPinTimestamp }
+                    if (messageToPin != null) {
+                        AlertDialog(
+                            onDismissRequest = { showPinDurationDialog = false },
+                            title = { Text("Pin message") },
+                            text = {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text("How long should this message remain pinned?")
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    PinnedMessagesPreferences.PinDuration.values().forEach { duration ->
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable {
+                                                    showPinDurationDialog = false
+                                                    lifecycleScope.launch {
+                                                        val snippet = if (messageToPin.body.isNotBlank()) {
+                                                            if (messageToPin.body.length > 100) {
+                                                                messageToPin.body.take(100) + "..."
+                                                            } else {
+                                                                messageToPin.body
+                                                            }
+                                                        } else if (messageToPin.attachments.isNotEmpty()) {
+                                                            "[Attachment]"
+                                                        } else {
+                                                            "[Message]"
+                                                        }
+
+                                                        PinnedMessagesPreferences.pinMessage(
+                                                            context = this@SmsDetailActivity,
+                                                            sender = sender,
+                                                            messageTimestamp = messageToPin.timestamp,
+                                                            snippet = snippet,
+                                                            duration = duration,
+                                                            hasAttachments = messageToPin.attachments.isNotEmpty()
+                                                        )
+                                                        selectedMessages = emptySet()
+                                                        android.widget.Toast.makeText(
+                                                            this@SmsDetailActivity,
+                                                            "Message pinned",
+                                                            android.widget.Toast.LENGTH_SHORT
+                                                        ).show()
+                                                    }
+                                                }
+                                                .padding(vertical = 12.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            androidx.compose.material3.RadioButton(
+                                                selected = false,
+                                                onClick = null
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(duration.label)
+                                        }
+                                    }
+                                }
+                            },
+                            confirmButton = {},
+                            dismissButton = {
+                                TextButton(onClick = { showPinDurationDialog = false }) {
+                                    Text("Cancel")
+                                }
+                            }
+                        )
+                    }
+                }
+
+                // Unpin confirmation dialog
+                if (showUnpinConfirmDialog && messageToUnpinTimestamp != null) {
+                    AlertDialog(
+                        onDismissRequest = { showUnpinConfirmDialog = false },
+                        title = { Text("Unpin message?") },
+                        text = { Text("This message will be removed from the pinned messages block.") },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                showUnpinConfirmDialog = false
+                                lifecycleScope.launch {
+                                    PinnedMessagesPreferences.unpinMessage(
+                                        context = this@SmsDetailActivity,
+                                        sender = sender,
+                                        messageTimestamp = messageToUnpinTimestamp!!
+                                    )
+                                    android.widget.Toast.makeText(
+                                        this@SmsDetailActivity,
+                                        "Message unpinned",
+                                        android.widget.Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            }) {
+                                Text("Unpin")
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showUnpinConfirmDialog = false }) {
+                                Text("Cancel")
+                            }
+                        }
+                    )
+                }
+
                 if (showBlockConfirmDialog) {
                     AlertDialog(
                         onDismissRequest = { showBlockConfirmDialog = false },
@@ -556,6 +939,7 @@ class SmsDetailActivity : ComponentActivity() {
             }
         }
     }
+}
 
     private fun readSmsMessages(sender: String): List<SmsMessage> {
         if (ContextCompat.checkSelfPermission(
@@ -566,53 +950,8 @@ class SmsDetailActivity : ComponentActivity() {
             return emptyList()
         }
 
-        val projection = arrayOf(
-            Telephony.Sms.BODY,
-            Telephony.Sms.DATE,
-            Telephony.Sms.TYPE,
-            Telephony.Sms.SUBSCRIPTION_ID,
-            Telephony.Sms.SEEN,
-            Telephony.Sms.READ
-        )
-
-        val cursor = contentResolver.query(
-            Telephony.Sms.CONTENT_URI,
-            projection,
-            "${Telephony.Sms.ADDRESS} = ?",
-            arrayOf(sender),
-            "${Telephony.Sms.DATE} ASC"
-        )
-
-        val smsList = mutableListOf<SmsMessage>()
-        cursor?.use {
-            val indexBody = it.getColumnIndex(Telephony.Sms.BODY)
-            val indexDate = it.getColumnIndex(Telephony.Sms.DATE)
-            val indexType = it.getColumnIndex(Telephony.Sms.TYPE)
-            val indexSubId = it.getColumnIndex(Telephony.Sms.SUBSCRIPTION_ID)
-            val indexSeen = it.getColumnIndex(Telephony.Sms.SEEN)
-            val indexRead = it.getColumnIndex(Telephony.Sms.READ)
-
-            while (it.moveToNext()) {
-                val body = it.getString(indexBody).orEmpty()
-                val timestamp = it.getLong(indexDate)
-                val type = it.getInt(indexType)
-                val subId = if (indexSubId >= 0) it.getInt(indexSubId) else -1
-                val isSeen = if (indexSeen >= 0) it.getInt(indexSeen) == 1 else true
-                val isRead = if (indexRead >= 0) it.getInt(indexRead) == 1 else true
-                smsList.add(
-                    SmsMessage(
-                        sender = sender,
-                        body = body,
-                        timestamp = timestamp,
-                        isSentByUser = isUserMessage(type),
-                        subscriptionId = subId,
-                        isSeen = isSeen,
-                        isRead = isRead
-                    )
-                )
-            }
-        }
-        return smsList
+        // Load all messages (SMS + MMS) for this conversation using MessageLoader
+        return MessageLoader.loadThreadMessages(this, sender)
     }
 
     private fun hasContactPermission(): Boolean =
@@ -753,10 +1092,11 @@ internal fun SmsDetailScreen(
     messageUiModels: List<MessageUiModel>,
     selectedMessages: Set<Long>,
     scrollToIndex: Int,
-    onMessageLongClick: (Long) -> Unit,
-    onMessageClick: (Long) -> Unit,
+    onMessageLongClick: (SmsMessage) -> Unit,
+    onMessageClick: (SmsMessage) -> Unit,
     listState: androidx.compose.foundation.lazy.LazyListState,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onRetry: ((SmsMessage) -> Unit)? = null
 ) {
     // Scroll to the target index when messages load
     LaunchedEffect(scrollToIndex, messageUiModels.size) {
@@ -765,28 +1105,61 @@ internal fun SmsDetailScreen(
         }
     }
 
-    LazyColumn(
-        state = listState,
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        items(
-            items = messageUiModels,
-            key = { "${it.message.timestamp}-${it.message.isSentByUser}" }
-        ) { uiModel ->
-            Column {
-                if (uiModel.showNewMessagesDivider) {
-                    NewMessagesDivider()
-                }
-                MessageBubble(
-                    message = uiModel.message,
-                    showTimestamp = uiModel.showTimestamp,
-                    isSelected = selectedMessages.contains(uiModel.message.timestamp),
-                    onLongClick = { onMessageLongClick(uiModel.message.timestamp) },
-                    onClick = { onMessageClick(uiModel.message.timestamp) }
+    if (messageUiModels.isEmpty()) {
+        // Empty state - no messages in this conversation yet
+        Box(
+            modifier = modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier.padding(32.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.MailOutline,
+                    contentDescription = null,
+                    modifier = Modifier.size(80.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                 )
+                Text(
+                    text = "No messages yet",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = "Type a message below to start the conversation",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+    } else {
+        LazyColumn(
+            state = listState,
+            modifier = modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(
+                items = messageUiModels,
+                key = { "${it.message.timestamp}-${it.message.isSentByUser}" }
+            ) { uiModel ->
+                Column {
+                    if (uiModel.showNewMessagesDivider) {
+                        NewMessagesDivider()
+                    }
+                    MessageBubble(
+                        message = uiModel.message,
+                        showTimestamp = uiModel.showTimestamp,
+                        isSelected = selectedMessages.contains(uiModel.message.timestamp),
+                        onLongClick = { onMessageLongClick(uiModel.message) },
+                        onClick = { onMessageClick(uiModel.message) },
+                        onRetry = onRetry
+                    )
+                }
             }
         }
     }
@@ -799,7 +1172,8 @@ fun MessageBubble(
     showTimestamp: Boolean,
     isSelected: Boolean,
     onLongClick: () -> Unit,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onRetry: ((SmsMessage) -> Unit)? = null
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val timeFormatter = remember { SimpleDateFormat("h:mm a", Locale.getDefault()) }
@@ -825,6 +1199,26 @@ fun MessageBubble(
         MaterialTheme.colorScheme.onSurfaceVariant
     }
 
+    // Check if device has multiple SIMs for visual SIM indicator
+    val activeSims = remember { SimHelper.getActiveSims(context) }
+    val hasMultipleSims = activeSims.size > 1
+
+    // Determine border color and width
+    val (borderColor, borderWidth) = when {
+        isSelected -> {
+            // Selection border takes priority (bright, thick)
+            MaterialTheme.colorScheme.primary to 2.dp
+        }
+        hasMultipleSims && message.isSentByUser && message.subscriptionId != -1 -> {
+            // SIM indicator border for dual SIM (subtle, uses SIM color)
+            bubbleColor to 1.5.dp
+        }
+        else -> {
+            // No border
+            Color.Transparent to 0.dp
+        }
+    }
+
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = alignment
@@ -839,10 +1233,10 @@ fun MessageBubble(
                     onLongClick = onLongClick
                 )
                 .then(
-                    if (isSelected) {
+                    if (borderWidth > 0.dp) {
                         Modifier.border(
-                            width = 2.dp,
-                            color = MaterialTheme.colorScheme.primary,
+                            width = borderWidth,
+                            color = borderColor,
                             shape = RoundedCornerShape(16.dp)
                         )
                     } else {
@@ -850,12 +1244,103 @@ fun MessageBubble(
                     }
                 )
         ) {
-            Text(
-                text = message.body,
-                color = textColor,
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
-            )
+            Column(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Show attachments if present
+                if (message.attachments.isNotEmpty()) {
+                    message.attachments.forEach { attachment ->
+                        AttachmentView(
+                            attachment = attachment,
+                            maxWidth = 250
+                        )
+                    }
+                }
+
+                // Show text with status indicator inline
+                Row(
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Bottom
+                ) {
+                    // Show text if present
+                    if (message.body.isNotBlank()) {
+                        Text(
+                            text = message.body,
+                            color = textColor,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                    }
+
+                    // Show delivery status for sent messages
+                    if (message.isSentByUser) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        when (message.deliveryStatus) {
+                            DeliveryStatus.PENDING -> {
+                                // Show a small circle for pending
+                                Surface(
+                                    modifier = Modifier.size(8.dp),
+                                    shape = CircleShape,
+                                    color = textColor.copy(alpha = 0.5f)
+                                ) {}
+                            }
+                            DeliveryStatus.SENT -> {
+                                Icon(
+                                    imageVector = Icons.Default.Done,
+                                    contentDescription = "Sent",
+                                    tint = textColor.copy(alpha = 0.7f),
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            }
+                            DeliveryStatus.DELIVERED -> {
+                                // Double checkmark for delivered
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy((-6).dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Done,
+                                        contentDescription = "Delivered",
+                                        tint = textColor.copy(alpha = 0.7f),
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Icon(
+                                        imageVector = Icons.Default.Done,
+                                        contentDescription = "",
+                                        tint = textColor.copy(alpha = 0.7f),
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
+                            }
+                            DeliveryStatus.FAILED -> {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    modifier = if (onRetry != null) {
+                                        Modifier.clickable { onRetry(message) }
+                                    } else {
+                                        Modifier
+                                    }
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Warning,
+                                        contentDescription = "Failed to send",
+                                        tint = Color(0xFFEF5350), // Red color for error
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    if (onRetry != null) {
+                                        Text(
+                                            text = "Tap to retry",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = Color(0xFFEF5350)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
         if (showTimestamp) {
             Row(
@@ -943,16 +1428,39 @@ fun MessageComposer(
     onSendClick: () -> Unit,
     onSendLongClick: () -> Unit = {},
     hasMultipleSims: Boolean = false,
+    attachments: List<SelectedAttachment> = emptyList(),
+    onAttachmentSelected: (SelectedAttachment) -> Unit = {},
+    onAttachmentRemoved: (SelectedAttachment) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val charCount = message.length
-    val smsCount = (charCount / 160) + 1
+    // Analyze SMS encoding and segment count
+    val segmentInfo = remember(message) {
+        SmsEncodingHelper.analyzeText(message)
+    }
+    val hasContent = message.isNotBlank() || attachments.isNotEmpty()
 
     Surface(
         modifier = modifier.fillMaxWidth(),
         tonalElevation = 3.dp
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
+            // Show attachment previews if any
+            if (attachments.isNotEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    attachments.forEach { attachment ->
+                        AttachmentPreview(
+                            attachment = attachment,
+                            onRemove = { onAttachmentRemoved(attachment) }
+                        )
+                    }
+                }
+            }
+
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -960,6 +1468,13 @@ fun MessageComposer(
                     .padding(horizontal = 8.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.Bottom
             ) {
+                // Attachment button
+                AttachmentButton(
+                    onAttachmentSelected = onAttachmentSelected
+                )
+
+                Spacer(modifier = Modifier.width(4.dp))
+
                 Column(modifier = Modifier.weight(1f)) {
                     OutlinedTextField(
                         value = message,
@@ -969,8 +1484,26 @@ fun MessageComposer(
                         maxLines = 4
                     )
                     if (message.isNotEmpty()) {
+                        val messageType = if (attachments.isNotEmpty()) "MMS" else "SMS"
+                        val segmentDisplay = SmsEncodingHelper.formatSegmentDisplay(segmentInfo)
+                        val encodingName = SmsEncodingHelper.getEncodingName(segmentInfo.encoding)
+
+                        // Use warning color when approaching limit
+                        val textColor = if (segmentInfo.isApproachingLimit) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+
                         Text(
-                            text = "$charCount chars • $smsCount SMS",
+                            text = "$segmentDisplay • $encodingName • $messageType",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = textColor,
+                            modifier = Modifier.padding(start = 16.dp, top = 4.dp)
+                        )
+                    } else if (attachments.isNotEmpty()) {
+                        Text(
+                            text = "${attachments.size} attachment${if (attachments.size > 1) "s" else ""} • MMS",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(start = 16.dp, top = 4.dp)
@@ -983,7 +1516,7 @@ fun MessageComposer(
                         .size(48.dp)
                         .clip(CircleShape)
                         .then(
-                            if (message.isNotBlank()) {
+                            if (hasContent) {
                                 Modifier.combinedClickable(
                                     onClick = {
                                         onSendClick()
@@ -1001,7 +1534,7 @@ fun MessageComposer(
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.Send,
                         contentDescription = "Send",
-                        tint = if (message.isNotBlank()) {
+                        tint = if (hasContent) {
                             MaterialTheme.colorScheme.primary
                         } else {
                             MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
@@ -1013,3 +1546,236 @@ fun MessageComposer(
         }
     }
 }
+
+/**
+ * Reply preview shown above the message composer
+ */
+@Composable
+fun ReplyPreview(
+    message: SmsMessage,
+    onDismiss: () -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        tonalElevation = 2.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Vertical accent line
+            Surface(
+                modifier = Modifier
+                    .width(4.dp)
+                    .height(48.dp),
+                color = MaterialTheme.colorScheme.primary
+            ) {}
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            // Reply content
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                // "Replying to [Sender]"
+                Text(
+                    text = "Replying to ${message.contactName ?: message.sender}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold
+                )
+
+                // Message snippet
+                val snippet = remember(message) {
+                    when {
+                        message.body.isNotBlank() -> {
+                            if (message.body.length > 50) {
+                                message.body.take(50) + "..."
+                            } else {
+                                message.body
+                            }
+                        }
+                        message.attachments.isNotEmpty() -> {
+                            val firstAttachment = message.attachments.first()
+                            when {
+                                firstAttachment.isImage -> "📷 Photo"
+                                firstAttachment.isVideo -> "🎥 Video"
+                                firstAttachment.isAudio -> "🎵 Audio"
+                                else -> "📎 Attachment"
+                            }
+                        }
+                        else -> "Message"
+                    }
+                }
+
+                Text(
+                    text = snippet,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                )
+            }
+
+            // Dismiss button
+            IconButton(onClick = onDismiss) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Cancel reply",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Pinned messages block shown below top bar
+ * Persistent during scroll
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun PinnedMessagesBlock(
+    pinnedMessages: List<PinnedMessage>,
+    onPinnedMessageClick: (PinnedMessage) -> Unit,
+    onPinnedMessageLongClick: (PinnedMessage) -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        tonalElevation = 2.dp,
+        shadowElevation = 2.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+        ) {
+            // Header
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.PushPin,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Pinned",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+                Text(
+                    text = "${pinnedMessages.size}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Pinned messages list
+            pinnedMessages.forEach { pinnedMessage ->
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .combinedClickable(
+                            onClick = { onPinnedMessageClick(pinnedMessage) },
+                            onLongClick = { onPinnedMessageLongClick(pinnedMessage) }
+                        )
+                        .padding(vertical = 4.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 1.dp
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        // Vertical accent line
+                        Surface(
+                            modifier = Modifier
+                                .width(3.dp)
+                                .height(40.dp),
+                            color = MaterialTheme.colorScheme.primary,
+                            shape = RoundedCornerShape(2.dp)
+                        ) {}
+
+                        Spacer(modifier = Modifier.width(10.dp))
+
+                        // Message content
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = pinnedMessage.snippet,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 2,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                            )
+
+                            // Expiry info
+                            pinnedMessage.expiryTimestamp?.let { expiry ->
+                                val timeLeft = expiry - System.currentTimeMillis()
+                                if (timeLeft > 0) {
+                                    val daysLeft = (timeLeft / (24 * 60 * 60 * 1000)).toInt()
+                                    val hoursLeft = (timeLeft / (60 * 60 * 1000)).toInt()
+                                    val expiryText = when {
+                                        daysLeft > 0 -> "Unpins in $daysLeft day${if (daysLeft > 1) "s" else ""}"
+                                        hoursLeft > 0 -> "Unpins in $hoursLeft hour${if (hoursLeft > 1) "s" else ""}"
+                                        else -> "Unpins soon"
+                                    }
+
+                                    Text(
+                                        text = expiryText,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                    )
+                                }
+                            } ?: run {
+                                Text(
+                                    text = "Pinned permanently",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                )
+                            }
+
+                            if (pinnedMessage.hasAttachments) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.ContentCopy,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(12.dp),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "Has attachment",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+

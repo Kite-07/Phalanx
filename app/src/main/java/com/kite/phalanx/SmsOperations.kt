@@ -42,6 +42,7 @@ object SmsOperations {
     /**
      * Writes a sent SMS to the system database
      * This is required for default SMS apps to persist sent messages
+     * Initially sets message type to OUTBOX - SmsSentReceiver will update it to SENT after successful send
      */
     fun writeSentSms(
         context: Context,
@@ -58,7 +59,10 @@ object SmsOperations {
                 put(Telephony.Sms.DATE_SENT, timestamp)
                 put(Telephony.Sms.READ, 1) // Sent messages are read
                 put(Telephony.Sms.SEEN, 1) // Sent messages are seen
-                put(Telephony.Sms.TYPE, Telephony.Sms.MESSAGE_TYPE_SENT)
+                // Start with OUTBOX type - SmsSentReceiver will update to SENT after successful send
+                put(Telephony.Sms.TYPE, Telephony.Sms.MESSAGE_TYPE_OUTBOX)
+                // Set initial status to pending (32 = STATUS_PENDING)
+                put(Telephony.Sms.STATUS, 32)
                 if (subscriptionId != -1) {
                     put(Telephony.Sms.SUBSCRIPTION_ID, subscriptionId)
                 }

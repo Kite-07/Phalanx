@@ -10,7 +10,12 @@
       "WebFetch(domain:medium.com)",
       "WebFetch(domain:stackoverflow.com)",
       "Bash(cmd.exe /c \"gradlew.bat assembleDebug\")",
-      "Bash(cmd.exe /c \"gradlew.bat assembleDebug 2>&1 | tail -20\")"
+      "Bash(cmd.exe /c \"gradlew.bat assembleDebug 2>&1 | tail -20\")",
+      "Bash(cmd.exe /c \"gradlew.bat assembleDebug 2>&1 | tail -50\")",
+      "Bash(adb logcat:*)",
+      "Bash(.gradlew.bat clean assembleDebug:*)",
+      "Bash(cmd.exe:*)",
+      "Bash(dir:*)"
     ],
     "deny": [],
     "ask": []

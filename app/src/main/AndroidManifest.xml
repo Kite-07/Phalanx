@@ -8,6 +8,13 @@
     <uses-permission android:name="android.permission.SEND_SMS" />
     <uses-permission android:name="android.permission.RECEIVE_SMS" />
     <uses-permission android:name="android.permission.RECEIVE_MMS" />
+    <uses-permission android:name="android.permission.RECEIVE_WAP_PUSH" />
+
+    <!-- Network permissions (required for MMS) -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
 
     <!-- Contact permissions -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
@@ -20,6 +27,16 @@
 
     <!-- Permission to bypass Do Not Disturb mode -->
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+
+    <!-- Storage permissions for MMS attachments -->
+    <!-- For Android 13+ (API 33+) use granular media permissions -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+
+    <!-- For Android 12 and below use legacy storage permission -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
 
     <application
         android:allowBackup="true"
@@ -70,6 +87,9 @@
         <activity
             android:name="com.kite.phalanx.ContactDetailActivity"
             android:exported="false" />
+        <activity
+            android:name="com.kite.phalanx.ArchivedMessagesActivity"
+            android:exported="false" />
 
         <!-- SMS Receiver for incoming messages -->
         <receiver
@@ -89,6 +109,25 @@
             <intent-filter>
                 <action android:name="android.provider.Telephony.WAP_PUSH_DELIVER" />
                 <data android:mimeType="application/vnd.wap.mms-message" />
+            </intent-filter>
+        </receiver>
+
+        <!-- MMS Sent Status Receiver -->
+        <receiver
+            android:name="com.kite.phalanx.MmsSentReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.kite.phalanx.MMS_SENT" />
+            </intent-filter>
+        </receiver>
+
+        <!-- SMS Sent and Delivery Status Receiver -->
+        <receiver
+            android:name="com.kite.phalanx.SmsSentReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.kite.phalanx.SMS_SENT" />
+                <action android:name="com.kite.phalanx.SMS_DELIVERED" />
             </intent-filter>
         </receiver>
 
@@ -116,6 +155,17 @@
                 <action android:name="com.kite.phalanx.REPLY" />
             </intent-filter>
         </receiver>
+
+        <!-- FileProvider for sharing MMS attachments -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_provider_paths" />
+        </provider>
     </application>
 
 </manifest>

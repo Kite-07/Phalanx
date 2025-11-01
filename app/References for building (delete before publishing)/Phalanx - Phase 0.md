@@ -58,7 +58,7 @@ Settings
 
 ## UI/UX Guidelines
 
-* Material 3; bottom FAB for new message; top app bar with Search, Overflow.  
+* Material 3; bottom FAB for new message; top app bar with Search, Overflow.
 * Thread list: large avatars, single-line name, single-line snippet, right-aligned time, unread dot. Swipe affordances.  
 * Thread view: bubbles with subtle corner radius; outgoing aligned right, incoming left; timestamps on long-press or inline group headers.  
 * Composer bar: text field, attach button, SIM selector chip, send button that indicates SIM color.  
