@@ -122,6 +122,10 @@ class SmsListActivity : ComponentActivity() {
                 val lifecycleOwner = this@SmsListActivity
                 val coroutineScope = rememberCoroutineScope()
 
+                // Load text size scale from preferences
+                val textSizeScale by AppPreferences.getTextSizeScaleFlow(context)
+                    .collectAsState(initial = 1.0f)
+
                 val refreshSmsList = remember(context, coroutineScope) {
                     {
                         if (
@@ -441,6 +445,7 @@ class SmsListActivity : ComponentActivity() {
                             smsList = filteredSmsList,
                             selectedThreads = selectedThreads,
                             isSelectionMode = isSelectionMode,
+                            textSizeScale = textSizeScale,
                             onThreadClick = { sender ->
                                 if (isSelectionMode) {
                                     selectedThreads = if (sender in selectedThreads) {
@@ -674,6 +679,7 @@ fun SmsListScreen(
     smsList: List<SmsMessage>,
     selectedThreads: Set<String>,
     isSelectionMode: Boolean,
+    textSizeScale: Float,
     onThreadClick: (String) -> Unit,
     onThreadLongClick: (String) -> Unit,
     modifier: Modifier = Modifier
@@ -697,12 +703,16 @@ fun SmsListScreen(
                 )
                 Text(
                     text = "No conversations yet",
-                    style = MaterialTheme.typography.titleLarge,
+                    style = MaterialTheme.typography.titleLarge.copy(
+                        fontSize = MaterialTheme.typography.titleLarge.fontSize * textSizeScale
+                    ),
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
                     text = "Tap the + button below to start a new conversation",
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontSize = MaterialTheme.typography.bodyMedium.fontSize * textSizeScale
+                    ),
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                     textAlign = TextAlign.Center
                 )
@@ -718,6 +728,7 @@ fun SmsListScreen(
                     sms = sms,
                     isSelected = sms.sender in selectedThreads,
                     isSelectionMode = isSelectionMode,
+                    textSizeScale = textSizeScale,
                     onClick = { onThreadClick(sms.sender) },
                     onLongClick = { onThreadLongClick(sms.sender) }
                 )
@@ -732,6 +743,7 @@ fun SmsCard(
     sms: SmsMessage,
     isSelected: Boolean,
     isSelectionMode: Boolean,
+    textSizeScale: Float,
     onClick: () -> Unit,
     onLongClick: () -> Unit
 ) {
@@ -821,7 +833,9 @@ fun SmsCard(
                     ) {
                         Text(
                             text = sms.contactName ?: sms.sender, // contactName now includes country code prefix
-                            style = MaterialTheme.typography.titleMedium,
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontSize = MaterialTheme.typography.titleMedium.fontSize * textSizeScale
+                            ),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f, fill = false)
@@ -848,7 +862,9 @@ fun SmsCard(
                     }
                     Text(
                         text = timeFormatter.format(Date(sms.timestamp)),
-                        style = MaterialTheme.typography.bodySmall,
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontSize = MaterialTheme.typography.bodySmall.fontSize * textSizeScale
+                        ),
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -856,15 +872,19 @@ fun SmsCard(
                     text = previewText,
                     style = if (sms.unreadCount > 0) {
                         MaterialTheme.typography.bodyMedium.copy(
-                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                            fontSize = MaterialTheme.typography.bodyMedium.fontSize * textSizeScale
                         )
                     } else if (!sms.draftText.isNullOrBlank()) {
                         // Draft text in italic
                         MaterialTheme.typography.bodyMedium.copy(
-                            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+                            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                            fontSize = MaterialTheme.typography.bodyMedium.fontSize * textSizeScale
                         )
                     } else {
-                        MaterialTheme.typography.bodyMedium
+                        MaterialTheme.typography.bodyMedium.copy(
+                            fontSize = MaterialTheme.typography.bodyMedium.fontSize * textSizeScale
+                        )
                     },
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,

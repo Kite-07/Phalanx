@@ -115,6 +115,10 @@ class SmsDetailActivity : ComponentActivity() {
 
         setContent {
             PhalanxTheme {
+                // Load text size scale from preferences
+                val textSizeScale by AppPreferences.getTextSizeScaleFlow(this@SmsDetailActivity)
+                    .collectAsState(initial = 1.0f)
+
                 // Read messages FIRST to capture unread status before marking as read
                 var messages by remember { mutableStateOf(readSmsMessages(sender)) }
                 var refreshTrigger by remember { mutableStateOf(0) }
@@ -268,7 +272,8 @@ class SmsDetailActivity : ComponentActivity() {
                                     ContactTitle(
                                         displayName = displayName,
                                         contactPhoto = contactPhoto,
-                                        sender = sender
+                                        sender = sender,
+                                        textSizeScale = textSizeScale
                                     )
                                 }
                             },
@@ -473,12 +478,14 @@ class SmsDetailActivity : ComponentActivity() {
                             replyingToMessage?.let { replyMsg ->
                                 ReplyPreview(
                                     message = replyMsg,
+                                    textSizeScale = textSizeScale,
                                     onDismiss = { replyingToMessage = null }
                                 )
                             }
 
                             MessageComposer(
                             message = messageText,
+                            textSizeScale = textSizeScale,
                             onMessageChange = { newText ->
                                 messageText = newText
                                 // Auto-save draft
@@ -635,6 +642,7 @@ class SmsDetailActivity : ComponentActivity() {
                             if (pinnedMessages.isNotEmpty()) {
                                 PinnedMessagesBlock(
                                     pinnedMessages = pinnedMessages,
+                                    textSizeScale = textSizeScale,
                                     onPinnedMessageClick = { pinnedMessage ->
                                         // Scroll to the message in the conversation
                                         val messageIndex = messageUiModels.indexOfFirst {
@@ -659,6 +667,7 @@ class SmsDetailActivity : ComponentActivity() {
                                 messageUiModels = messageUiModels,
                                 selectedMessages = selectedMessages,
                                 scrollToIndex = scrollToIndex,
+                                textSizeScale = textSizeScale,
                                 onMessageLongClick = { message ->
                                     // Long-press always toggles selection (enters or modifies selection mode)
                                     selectedMessages = if (selectedMessages.contains(message.timestamp)) {
@@ -1027,7 +1036,7 @@ class SmsDetailActivity : ComponentActivity() {
 }
 
 @Composable
-fun ContactTitle(displayName: String, contactPhoto: ImageBitmap?, sender: String) {
+fun ContactTitle(displayName: String, contactPhoto: ImageBitmap?, sender: String, textSizeScale: Float) {
     val context = androidx.compose.ui.platform.LocalContext.current
 
     // Check if conversation is muted
@@ -1074,12 +1083,19 @@ fun ContactTitle(displayName: String, contactPhoto: ImageBitmap?, sender: String
             }
         }
         Spacer(modifier = Modifier.width(12.dp))
-        Text(text = displayName)
+        Text(
+            text = displayName,
+            style = MaterialTheme.typography.titleLarge.copy(
+                fontSize = MaterialTheme.typography.titleLarge.fontSize * textSizeScale
+            )
+        )
         if (isMuted) {
             Spacer(modifier = Modifier.width(4.dp))
             Text(
                 text = "(Muted)",
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodySmall.copy(
+                    fontSize = MaterialTheme.typography.bodySmall.fontSize * textSizeScale
+                ),
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
@@ -1092,6 +1108,7 @@ internal fun SmsDetailScreen(
     messageUiModels: List<MessageUiModel>,
     selectedMessages: Set<Long>,
     scrollToIndex: Int,
+    textSizeScale: Float,
     onMessageLongClick: (SmsMessage) -> Unit,
     onMessageClick: (SmsMessage) -> Unit,
     listState: androidx.compose.foundation.lazy.LazyListState,
@@ -1124,12 +1141,16 @@ internal fun SmsDetailScreen(
                 )
                 Text(
                     text = "No messages yet",
-                    style = MaterialTheme.typography.titleLarge,
+                    style = MaterialTheme.typography.titleLarge.copy(
+                        fontSize = MaterialTheme.typography.titleLarge.fontSize * textSizeScale
+                    ),
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
                     text = "Type a message below to start the conversation",
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontSize = MaterialTheme.typography.bodyMedium.fontSize * textSizeScale
+                    ),
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                     textAlign = TextAlign.Center
                 )
@@ -1149,12 +1170,13 @@ internal fun SmsDetailScreen(
             ) { uiModel ->
                 Column {
                     if (uiModel.showNewMessagesDivider) {
-                        NewMessagesDivider()
+                        NewMessagesDivider(textSizeScale = textSizeScale)
                     }
                     MessageBubble(
                         message = uiModel.message,
                         showTimestamp = uiModel.showTimestamp,
                         isSelected = selectedMessages.contains(uiModel.message.timestamp),
+                        textSizeScale = textSizeScale,
                         onLongClick = { onMessageLongClick(uiModel.message) },
                         onClick = { onMessageClick(uiModel.message) },
                         onRetry = onRetry
@@ -1171,6 +1193,7 @@ fun MessageBubble(
     message: SmsMessage,
     showTimestamp: Boolean,
     isSelected: Boolean,
+    textSizeScale: Float,
     onLongClick: () -> Unit,
     onClick: () -> Unit,
     onRetry: ((SmsMessage) -> Unit)? = null
@@ -1268,7 +1291,9 @@ fun MessageBubble(
                         Text(
                             text = message.body,
                             color = textColor,
-                            style = MaterialTheme.typography.bodyMedium,
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                fontSize = MaterialTheme.typography.bodyMedium.fontSize * textSizeScale
+                            ),
                             modifier = Modifier.weight(1f, fill = false)
                         )
                     }
@@ -1331,7 +1356,9 @@ fun MessageBubble(
                                     if (onRetry != null) {
                                         Text(
                                             text = "Tap to retry",
-                                            style = MaterialTheme.typography.labelSmall,
+                                            style = MaterialTheme.typography.labelSmall.copy(
+                                                fontSize = MaterialTheme.typography.labelSmall.fontSize * textSizeScale
+                                            ),
                                             color = Color(0xFFEF5350)
                                         )
                                     }
@@ -1355,7 +1382,9 @@ fun MessageBubble(
             ) {
                 Text(
                     text = timeFormatter.format(Date(message.timestamp)),
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontSize = MaterialTheme.typography.bodySmall.fontSize * textSizeScale
+                    ),
                     color = MaterialTheme.colorScheme.outline
                 )
             }
@@ -1364,7 +1393,7 @@ fun MessageBubble(
 }
 
 @Composable
-fun NewMessagesDivider(modifier: Modifier = Modifier) {
+fun NewMessagesDivider(textSizeScale: Float, modifier: Modifier = Modifier) {
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -1377,7 +1406,9 @@ fun NewMessagesDivider(modifier: Modifier = Modifier) {
         )
         Text(
             text = "Unread",
-            style = MaterialTheme.typography.labelMedium,
+            style = MaterialTheme.typography.labelMedium.copy(
+                fontSize = MaterialTheme.typography.labelMedium.fontSize * textSizeScale
+            ),
             color = Color(0xFF4CAF50),
             modifier = Modifier.padding(horizontal = 12.dp)
         )
@@ -1424,6 +1455,7 @@ private fun minuteBucket(timestamp: Long): Long = timestamp / 60_000L
 @Composable
 fun MessageComposer(
     message: String,
+    textSizeScale: Float,
     onMessageChange: (String) -> Unit,
     onSendClick: () -> Unit,
     onSendLongClick: () -> Unit = {},
@@ -1497,14 +1529,18 @@ fun MessageComposer(
 
                         Text(
                             text = "$segmentDisplay • $encodingName • $messageType",
-                            style = MaterialTheme.typography.bodySmall,
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontSize = MaterialTheme.typography.bodySmall.fontSize * textSizeScale
+                            ),
                             color = textColor,
                             modifier = Modifier.padding(start = 16.dp, top = 4.dp)
                         )
                     } else if (attachments.isNotEmpty()) {
                         Text(
                             text = "${attachments.size} attachment${if (attachments.size > 1) "s" else ""} • MMS",
-                            style = MaterialTheme.typography.bodySmall,
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontSize = MaterialTheme.typography.bodySmall.fontSize * textSizeScale
+                            ),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(start = 16.dp, top = 4.dp)
                         )
@@ -1553,6 +1589,7 @@ fun MessageComposer(
 @Composable
 fun ReplyPreview(
     message: SmsMessage,
+    textSizeScale: Float,
     onDismiss: () -> Unit
 ) {
     Surface(
@@ -1584,7 +1621,9 @@ fun ReplyPreview(
                 // "Replying to [Sender]"
                 Text(
                     text = "Replying to ${message.contactName ?: message.sender}",
-                    style = MaterialTheme.typography.labelMedium,
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        fontSize = MaterialTheme.typography.labelMedium.fontSize * textSizeScale
+                    ),
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -1614,7 +1653,9 @@ fun ReplyPreview(
 
                 Text(
                     text = snippet,
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontSize = MaterialTheme.typography.bodyMedium.fontSize * textSizeScale
+                    ),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
@@ -1641,6 +1682,7 @@ fun ReplyPreview(
 @Composable
 fun PinnedMessagesBlock(
     pinnedMessages: List<PinnedMessage>,
+    textSizeScale: Float,
     onPinnedMessageClick: (PinnedMessage) -> Unit,
     onPinnedMessageLongClick: (PinnedMessage) -> Unit
 ) {
@@ -1671,14 +1713,18 @@ fun PinnedMessagesBlock(
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = "Pinned",
-                        style = MaterialTheme.typography.labelMedium,
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            fontSize = MaterialTheme.typography.labelMedium.fontSize * textSizeScale
+                        ),
                         color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.SemiBold
                     )
                 }
                 Text(
                     text = "${pinnedMessages.size}",
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = MaterialTheme.typography.labelSmall.fontSize * textSizeScale
+                    ),
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
@@ -1723,7 +1769,9 @@ fun PinnedMessagesBlock(
                         ) {
                             Text(
                                 text = pinnedMessage.snippet,
-                                style = MaterialTheme.typography.bodyMedium,
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    fontSize = MaterialTheme.typography.bodyMedium.fontSize * textSizeScale
+                                ),
                                 color = MaterialTheme.colorScheme.onSurface,
                                 maxLines = 2,
                                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
@@ -1743,14 +1791,18 @@ fun PinnedMessagesBlock(
 
                                     Text(
                                         text = expiryText,
-                                        style = MaterialTheme.typography.labelSmall,
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontSize = MaterialTheme.typography.labelSmall.fontSize * textSizeScale
+                                        ),
                                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                                     )
                                 }
                             } ?: run {
                                 Text(
                                     text = "Pinned permanently",
-                                    style = MaterialTheme.typography.labelSmall,
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontSize = MaterialTheme.typography.labelSmall.fontSize * textSizeScale
+                                    ),
                                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                                 )
                             }
@@ -1766,7 +1818,9 @@ fun PinnedMessagesBlock(
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Text(
                                         text = "Has attachment",
-                                        style = MaterialTheme.typography.labelSmall,
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontSize = MaterialTheme.typography.labelSmall.fontSize * textSizeScale
+                                        ),
                                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                                     )
                                 }

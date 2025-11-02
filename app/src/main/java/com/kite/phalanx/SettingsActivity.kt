@@ -289,9 +289,51 @@ class SettingsActivity : ComponentActivity() {
                         item {
                             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                         }
+
+                        // Appearance Section
+                        item {
+                            SettingsSectionHeader(title = "Appearance")
+                        }
+
+                        item {
+                            var textSizeScale by remember { mutableFloatStateOf(1.0f) }
+
+                            // Load text size from preferences
+                            LaunchedEffect(Unit) {
+                                textSizeScale = AppPreferences.getTextSizeScale(this@SettingsActivity)
+                            }
+
+                            TextSizeSliderItem(
+                                title = "Text size",
+                                subtitle = getTextSizeLabel(textSizeScale),
+                                value = textSizeScale,
+                                onValueChange = { newScale ->
+                                    textSizeScale = newScale
+                                },
+                                onValueChangeFinished = {
+                                    scope.launch {
+                                        AppPreferences.setTextSizeScale(this@SettingsActivity, textSizeScale)
+                                    }
+                                }
+                            )
+                        }
+
+                        item {
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                        }
                     }
                 }
             }
+        }
+    }
+
+    private fun getTextSizeLabel(scale: Float): String {
+        return when {
+            scale < 0.8f -> "Extra Small (${(scale * 100).toInt()}%)"
+            scale < 0.95f -> "Small (${(scale * 100).toInt()}%)"
+            scale <= 1.05f -> "Normal (${(scale * 100).toInt()}%)"
+            scale <= 1.3f -> "Large (${(scale * 100).toInt()}%)"
+            else -> "Extra Large (${(scale * 100).toInt()}%)"
         }
     }
 }
@@ -499,5 +541,40 @@ fun ColorPicker(
                     .clickable { onColorSelected(color) }
             )
         }
+    }
+}
+
+@Composable
+fun TextSizeSliderItem(
+    title: String,
+    subtitle: String,
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    onValueChangeFinished: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.Medium
+        )
+        Text(
+            text = subtitle,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 4.dp)
+        )
+        androidx.compose.material3.Slider(
+            value = value,
+            onValueChange = onValueChange,
+            onValueChangeFinished = onValueChangeFinished,
+            valueRange = 0.7f..1.6f,
+            steps = 8, // 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6
+            modifier = Modifier.padding(top = 8.dp)
+        )
     }
 }

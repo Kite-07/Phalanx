@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
@@ -18,6 +19,7 @@ object AppPreferences {
     private val MMS_AUTO_DOWNLOAD_WIFI_KEY = booleanPreferencesKey("mms_auto_download_wifi")
     private val MMS_AUTO_DOWNLOAD_CELLULAR_KEY = booleanPreferencesKey("mms_auto_download_cellular")
     private val BYPASS_DND_KEY = booleanPreferencesKey("bypass_dnd")
+    private val TEXT_SIZE_SCALE_KEY = floatPreferencesKey("text_size_scale")
 
     /**
      * Delivery Reports
@@ -92,6 +94,27 @@ object AppPreferences {
     suspend fun setBypassDnd(context: Context, enabled: Boolean) {
         context.appPreferencesDataStore.edit { preferences ->
             preferences[BYPASS_DND_KEY] = enabled
+        }
+    }
+
+    /**
+     * Text Size Scale
+     * Range: 0.7 (Extra Small) to 1.6 (Extra Large), Default: 1.0 (Normal)
+     */
+    fun getTextSizeScaleFlow(context: Context): Flow<Float> {
+        return context.appPreferencesDataStore.data.map { preferences ->
+            preferences[TEXT_SIZE_SCALE_KEY] ?: 1.0f // Default: normal size
+        }
+    }
+
+    suspend fun getTextSizeScale(context: Context): Float {
+        return getTextSizeScaleFlow(context).first()
+    }
+
+    suspend fun setTextSizeScale(context: Context, scale: Float) {
+        context.appPreferencesDataStore.edit { preferences ->
+            // Clamp value between 0.7 and 1.6
+            preferences[TEXT_SIZE_SCALE_KEY] = scale.coerceIn(0.7f, 1.6f)
         }
     }
 }

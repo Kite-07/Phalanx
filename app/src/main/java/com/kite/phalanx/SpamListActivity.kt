@@ -57,6 +57,12 @@ class SpamListActivity : ComponentActivity() {
 
         setContent {
             PhalanxTheme {
+                val context = androidx.compose.ui.platform.LocalContext.current
+
+                // Load text size scale from preferences
+                val textSizeScale by AppPreferences.getTextSizeScaleFlow(context)
+                    .collectAsState(initial = 1.0f)
+
                 var spamList by remember { mutableStateOf<List<SmsMessage>>(emptyList()) }
                 var selectedThreads by remember { mutableStateOf<Set<String>>(emptySet()) }
                 val isSelectionMode = selectedThreads.isNotEmpty()
@@ -138,7 +144,9 @@ class SpamListActivity : ComponentActivity() {
                         ) {
                             Text(
                                 text = "No blocked conversations",
-                                style = MaterialTheme.typography.bodyLarge,
+                                style = MaterialTheme.typography.bodyLarge.copy(
+                                    fontSize = MaterialTheme.typography.bodyLarge.fontSize * textSizeScale
+                                ),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
@@ -147,6 +155,7 @@ class SpamListActivity : ComponentActivity() {
                             spamList = spamList,
                             selectedThreads = selectedThreads,
                             isSelectionMode = isSelectionMode,
+                            textSizeScale = textSizeScale,
                             onThreadClick = { sender ->
                                 if (isSelectionMode) {
                                     selectedThreads = if (sender in selectedThreads) {
@@ -413,6 +422,7 @@ fun SpamListScreen(
     spamList: List<SmsMessage>,
     selectedThreads: Set<String>,
     isSelectionMode: Boolean,
+    textSizeScale: Float,
     onThreadClick: (String) -> Unit,
     onThreadLongClick: (String) -> Unit,
     modifier: Modifier = Modifier
@@ -428,6 +438,7 @@ fun SpamListScreen(
             SpamThreadItem(
                 sms = sms,
                 isSelected = sms.sender in selectedThreads,
+                textSizeScale = textSizeScale,
                 onClick = { onThreadClick(sms.sender) },
                 onLongClick = { onThreadLongClick(sms.sender) }
             )
@@ -440,6 +451,7 @@ fun SpamListScreen(
 fun SpamThreadItem(
     sms: SmsMessage,
     isSelected: Boolean,
+    textSizeScale: Float,
     onClick: () -> Unit,
     onLongClick: () -> Unit
 ) {
@@ -490,20 +502,26 @@ fun SpamThreadItem(
                 ) {
                     Text(
                         text = sms.contactName ?: sms.sender,
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontSize = MaterialTheme.typography.titleMedium.fontSize * textSizeScale
+                        ),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
                     )
                     Text(
                         text = timeFormatter.format(Date(sms.timestamp)),
-                        style = MaterialTheme.typography.bodySmall,
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontSize = MaterialTheme.typography.bodySmall.fontSize * textSizeScale
+                        ),
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
                 Text(
                     text = sms.body,
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontSize = MaterialTheme.typography.bodyMedium.fontSize * textSizeScale
+                    ),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

@@ -40,6 +40,12 @@ class SpamDetailActivity : ComponentActivity() {
 
         setContent {
             PhalanxTheme {
+                val context = androidx.compose.ui.platform.LocalContext.current
+
+                // Load text size scale from preferences
+                val textSizeScale by AppPreferences.getTextSizeScaleFlow(context)
+                    .collectAsState(initial = 1.0f)
+
                 var messages by remember { mutableStateOf(readSmsMessages(sender)) }
                 var showMenu by remember { mutableStateOf(false) }
                 var showDeleteConfirmDialog by remember { mutableStateOf(false) }
@@ -49,7 +55,14 @@ class SpamDetailActivity : ComponentActivity() {
                 Scaffold(
                     topBar = {
                         TopAppBar(
-                            title = { Text(sender) },
+                            title = {
+                                Text(
+                                    text = sender,
+                                    style = MaterialTheme.typography.titleLarge.copy(
+                                        fontSize = MaterialTheme.typography.titleLarge.fontSize * textSizeScale
+                                    )
+                                )
+                            },
                             navigationIcon = {
                                 IconButton(onClick = { finish() }) {
                                     Icon(
@@ -93,6 +106,7 @@ class SpamDetailActivity : ComponentActivity() {
                 ) { innerPadding ->
                     SpamDetailScreen(
                         messages = messages,
+                        textSizeScale = textSizeScale,
                         modifier = Modifier.padding(innerPadding)
                     )
                 }
@@ -194,7 +208,7 @@ class SpamDetailActivity : ComponentActivity() {
 }
 
 @Composable
-fun SpamDetailScreen(messages: List<SmsMessage>, modifier: Modifier = Modifier) {
+fun SpamDetailScreen(messages: List<SmsMessage>, textSizeScale: Float, modifier: Modifier = Modifier) {
     val messageUiModels = remember(messages) { buildSpamMessageUiModels(messages) }
 
     LazyColumn(
@@ -209,14 +223,15 @@ fun SpamDetailScreen(messages: List<SmsMessage>, modifier: Modifier = Modifier) 
         ) { uiModel ->
             SpamMessageBubble(
                 message = uiModel.message,
-                showTimestamp = uiModel.showTimestamp
+                showTimestamp = uiModel.showTimestamp,
+                textSizeScale = textSizeScale
             )
         }
     }
 }
 
 @Composable
-fun SpamMessageBubble(message: SmsMessage, showTimestamp: Boolean) {
+fun SpamMessageBubble(message: SmsMessage, showTimestamp: Boolean, textSizeScale: Float) {
     val timeFormatter = remember { SimpleDateFormat("h:mm a", Locale.getDefault()) }
     val alignment = if (message.isSentByUser) Alignment.End else Alignment.Start
     val bubbleColor = if (message.isSentByUser) {
@@ -242,7 +257,9 @@ fun SpamMessageBubble(message: SmsMessage, showTimestamp: Boolean) {
             Text(
                 text = message.body,
                 color = textColor,
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontSize = MaterialTheme.typography.bodyMedium.fontSize * textSizeScale
+                ),
                 modifier = Modifier
                     .padding(horizontal = 16.dp, vertical = 10.dp)
             )
@@ -260,7 +277,9 @@ fun SpamMessageBubble(message: SmsMessage, showTimestamp: Boolean) {
             ) {
                 Text(
                     text = timeFormatter.format(Date(message.timestamp)),
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontSize = MaterialTheme.typography.bodySmall.fontSize * textSizeScale
+                    ),
                     color = MaterialTheme.colorScheme.outline
                 )
             }

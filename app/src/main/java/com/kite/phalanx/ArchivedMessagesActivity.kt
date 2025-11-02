@@ -71,6 +71,11 @@ class ArchivedMessagesActivity : ComponentActivity() {
             PhalanxTheme {
                 val context = LocalContext.current
                 val coroutineScope = rememberCoroutineScope()
+
+                // Load text size scale from preferences
+                val textSizeScale by AppPreferences.getTextSizeScaleFlow(context)
+                    .collectAsState(initial = 1.0f)
+
                 var smsList by remember { mutableStateOf<List<SmsMessage>>(emptyList()) }
                 var selectedThreads by remember { mutableStateOf<Set<String>>(emptySet()) }
                 val isSelectionMode = selectedThreads.isNotEmpty()
@@ -166,12 +171,16 @@ class ArchivedMessagesActivity : ComponentActivity() {
                                     )
                                     Text(
                                         text = "No archived conversations",
-                                        style = MaterialTheme.typography.titleLarge,
+                                        style = MaterialTheme.typography.titleLarge.copy(
+                                            fontSize = MaterialTheme.typography.titleLarge.fontSize * textSizeScale
+                                        ),
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                     Text(
                                         text = "Conversations you archive will appear here",
-                                        style = MaterialTheme.typography.bodyMedium,
+                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                            fontSize = MaterialTheme.typography.bodyMedium.fontSize * textSizeScale
+                                        ),
                                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                                         textAlign = TextAlign.Center
                                     )
@@ -186,6 +195,7 @@ class ArchivedMessagesActivity : ComponentActivity() {
                                     ArchivedThreadItem(
                                         sms = sms,
                                         isSelected = sms.sender in selectedThreads,
+                                        textSizeScale = textSizeScale,
                                         onClick = { sender ->
                                             if (isSelectionMode) {
                                                 selectedThreads = if (sender in selectedThreads) {
@@ -372,6 +382,7 @@ class ArchivedMessagesActivity : ComponentActivity() {
 fun ArchivedThreadItem(
     sms: SmsMessage,
     isSelected: Boolean,
+    textSizeScale: Float,
     onClick: (String) -> Unit,
     onLongClick: (String) -> Unit
 ) {
@@ -418,7 +429,9 @@ fun ArchivedThreadItem(
             // Sender name/number
             Text(
                 text = sms.contactName ?: sms.sender,
-                style = MaterialTheme.typography.bodyLarge,
+                style = MaterialTheme.typography.bodyLarge.copy(
+                    fontSize = MaterialTheme.typography.bodyLarge.fontSize * textSizeScale
+                ),
                 fontWeight = FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -427,7 +440,9 @@ fun ArchivedThreadItem(
             // Message preview
             Text(
                 text = sms.body,
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontSize = MaterialTheme.typography.bodyMedium.fontSize * textSizeScale
+                ),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
@@ -443,7 +458,9 @@ fun ArchivedThreadItem(
         ) {
             Text(
                 text = formatTimestamp(sms.timestamp),
-                style = MaterialTheme.typography.labelSmall,
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontSize = MaterialTheme.typography.labelSmall.fontSize * textSizeScale
+                ),
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
