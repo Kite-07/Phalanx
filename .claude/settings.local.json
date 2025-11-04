@@ -15,7 +15,15 @@
       "Bash(adb logcat:*)",
       "Bash(.gradlew.bat clean assembleDebug:*)",
       "Bash(cmd.exe:*)",
-      "Bash(dir:*)"
+      "Bash(dir:*)",
+      "WebFetch(domain:publicsuffix.org)",
+      "Bash(powershell:*)",
+      "Bash(./gradlew.bat test:*)",
+      "Bash(./gradlew.bat testDebugUnitTest:*)",
+      "Bash(./gradlew.bat clean testDebugUnitTest:*)",
+      "Bash(.gradlew.bat assembleDebug)",
+      "Bash(del \"C:\\Users\\Kite\\AndroidStudioProjects\\Phalanx\\app\\src\\main\\java\\com\\kite\\phalanx\\data\\repository\\PhishTankRepository.kt\")",
+      "Bash(cat:*)"
     ],
     "deny": [],
     "ask": []

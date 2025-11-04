@@ -53,6 +53,10 @@ class SettingsActivity : ComponentActivity() {
                 var bypassDnd by remember { mutableStateOf(false) }
                 var refreshTrigger by remember { mutableStateOf(0) }
 
+                // Security preferences
+                var customApiKey by remember { mutableStateOf("") }
+                var hasCustomKey by remember { mutableStateOf(false) }
+
                 // Listen for lifecycle events (specifically onResume)
                 val lifecycleOwner = LocalLifecycleOwner.current
                 DisposableEffect(lifecycleOwner) {
@@ -81,6 +85,15 @@ class SettingsActivity : ComponentActivity() {
                     mmsAutoDownloadWifi = AppPreferences.getMmsAutoDownloadWifi(this@SettingsActivity)
                     mmsAutoDownloadCellular = AppPreferences.getMmsAutoDownloadCellular(this@SettingsActivity)
                     bypassDnd = AppPreferences.getBypassDnd(this@SettingsActivity)
+
+                    // Load security preferences
+                    hasCustomKey = SafeBrowsingPreferences.hasCustomApiKey(this@SettingsActivity)
+                    if (hasCustomKey) {
+                        val currentKey = SafeBrowsingPreferences.getApiKey(this@SettingsActivity)
+                        if (currentKey != SafeBrowsingPreferences.DEFAULT_API_KEY) {
+                            customApiKey = currentKey
+                        }
+                    }
 
                     // Check if user granted DND permission after returning from settings
                     if (dndPermissionCheckNeeded) {
@@ -313,6 +326,44 @@ class SettingsActivity : ComponentActivity() {
                                 onValueChangeFinished = {
                                     scope.launch {
                                         AppPreferences.setTextSizeScale(this@SettingsActivity, textSizeScale)
+                                    }
+                                }
+                            )
+                        }
+
+                        item {
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                        }
+
+                        // Security Section
+                        item {
+                            SettingsSectionHeader(title = "Security")
+                        }
+
+                        item {
+                            SettingsDescription(
+                                text = "Phalanx uses Google Safe Browsing to check URLs for phishing and malware. The app provides a default API key, but if you exceed the quota, you can add your own key from Google Cloud Console."
+                            )
+                        }
+
+                        item {
+                            CustomApiKeyInput(
+                                currentKey = customApiKey,
+                                hasCustomKey = hasCustomKey,
+                                onKeyChange = { newKey ->
+                                    customApiKey = newKey
+                                },
+                                onSave = {
+                                    scope.launch {
+                                        SafeBrowsingPreferences.setCustomApiKey(this@SettingsActivity, customApiKey)
+                                        hasCustomKey = SafeBrowsingPreferences.hasCustomApiKey(this@SettingsActivity)
+                                    }
+                                },
+                                onClear = {
+                                    scope.launch {
+                                        SafeBrowsingPreferences.clearCustomApiKey(this@SettingsActivity)
+                                        customApiKey = ""
+                                        hasCustomKey = false
                                     }
                                 }
                             )
@@ -576,5 +627,77 @@ fun TextSizeSliderItem(
             steps = 8, // 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6
             modifier = Modifier.padding(top = 8.dp)
         )
+    }
+}
+
+@Composable
+fun CustomApiKeyInput(
+    currentKey: String,
+    hasCustomKey: Boolean,
+    onKeyChange: (String) -> Unit,
+    onSave: () -> Unit,
+    onClear: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+    ) {
+        Text(
+            text = "Custom Google Safe Browsing API Key",
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.Medium
+        )
+
+        if (hasCustomKey) {
+            Text(
+                text = "Using custom API key",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+        } else {
+            Text(
+                text = "Using default API key",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        OutlinedTextField(
+            value = currentKey,
+            onValueChange = onKeyChange,
+            label = { Text("API Key") },
+            placeholder = { Text("Enter your Google Safe Browsing API key") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            if (hasCustomKey) {
+                OutlinedButton(
+                    onClick = onClear,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("Reset to Default")
+                }
+            }
+
+            Button(
+                onClick = onSave,
+                enabled = currentKey.isNotBlank(),
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(if (hasCustomKey) "Update" else "Save")
+            }
+        }
     }
 }

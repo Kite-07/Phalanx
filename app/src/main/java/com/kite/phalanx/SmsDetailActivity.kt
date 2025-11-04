@@ -90,6 +90,13 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.foundation.text.ClickableText
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withStyle
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -97,15 +104,35 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.kite.phalanx.ui.theme.PhalanxTheme
+import com.kite.phalanx.ui.SmsDetailViewModel
+import com.kite.phalanx.ui.SecurityChip
+import com.kite.phalanx.ui.SecurityExplanationSheet
+import com.kite.phalanx.domain.model.VerdictLevel
+import dagger.hilt.android.AndroidEntryPoint
+import androidx.activity.viewModels
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+@AndroidEntryPoint
 class SmsDetailActivity : ComponentActivity() {
+
+    private val viewModel: SmsDetailViewModel by viewModels()
 
     // Flag to prevent ContentObserver from refreshing while we mark messages as read
     @Volatile
     private var isMarkingAsRead = false
+
+    // BroadcastReceiver for quota exceeded events
+    private val quotaExceededReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
+            if (intent?.action == com.kite.phalanx.data.repository.SafeBrowsingRepository.ACTION_QUOTA_EXCEEDED) {
+                showQuotaExceededDialog()
+            }
+        }
+    }
+
+    private var quotaExceededDialogShown = false
 
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -124,12 +151,36 @@ class SmsDetailActivity : ComponentActivity() {
                 var refreshTrigger by remember { mutableStateOf(0) }
                 val scope = rememberCoroutineScope()
 
+                // Collect verdict cache from ViewModel
+                val verdictCache by viewModel.verdictCache.collectAsState()
+
+                // State for security explanation sheet
+                var showSecuritySheet by remember { mutableStateOf(false) }
+                var selectedMessageForSecurity by remember { mutableStateOf<SmsMessage?>(null) }
+
+                // Analyze messages for security threats (only received messages)
+                LaunchedEffect(messages) {
+                    messages.filter { !it.isSentByUser && it.body.isNotBlank() }.forEach { message ->
+                        viewModel.analyzeMessage(message.timestamp, message.body, sender)
+                    }
+                }
+
                 // Mark as read/seen and cancel notification after initial load
                 LaunchedEffect(Unit) {
                     isMarkingAsRead = true
                     SmsOperations.markAsRead(this@SmsDetailActivity, sender)
                     SmsOperations.markAsSeen(this@SmsDetailActivity, sender)
+
+                    // Cancel normal message notification
                     NotificationHelper.cancelNotification(this@SmsDetailActivity, sender)
+
+                    // Cancel all security threat notifications for messages from this sender
+                    val notificationManager = androidx.core.app.NotificationManagerCompat.from(this@SmsDetailActivity)
+                    messages.forEach { message ->
+                        // Cancel security threat notification (if any) for each message
+                        notificationManager.cancel((sender + message.timestamp).hashCode())
+                    }
+
                     // Small delay to ensure ContentObserver processes all changes
                     kotlinx.coroutines.delay(200)
                     isMarkingAsRead = false
@@ -668,6 +719,11 @@ class SmsDetailActivity : ComponentActivity() {
                                 selectedMessages = selectedMessages,
                                 scrollToIndex = scrollToIndex,
                                 textSizeScale = textSizeScale,
+                                verdictCache = verdictCache,
+                                onSecurityChipClick = { message ->
+                                    selectedMessageForSecurity = message
+                                    showSecuritySheet = true
+                                },
                                 onMessageLongClick = { message ->
                                     // Long-press always toggles selection (enters or modifies selection mode)
                                     selectedMessages = if (selectedMessages.contains(message.timestamp)) {
@@ -945,10 +1001,102 @@ class SmsDetailActivity : ComponentActivity() {
                         }
                     )
                 }
+
+                // Security explanation sheet
+                if (showSecuritySheet && selectedMessageForSecurity != null) {
+                    val verdict = verdictCache[selectedMessageForSecurity!!.timestamp]
+                    if (verdict != null) {
+                        // Extract registered domain from cached domain profiles
+                        val registeredDomain = viewModel.getRegisteredDomain(selectedMessageForSecurity!!.timestamp) ?: ""
+
+                        SecurityExplanationSheet(
+                            verdict = verdict,
+                            registeredDomain = registeredDomain,
+                            finalUrl = null, // TODO: Get from expanded URLs
+                            onDismiss = {
+                                showSecuritySheet = false
+                                selectedMessageForSecurity = null
+                            },
+                            onOpenSafely = {
+                                // TODO: Open URL in external browser
+                            },
+                            onCopyUrl = {
+                                // TODO: Copy URL to clipboard
+                            },
+                            onWhitelist = if (verdict.level != VerdictLevel.RED) {
+                                {
+                                    // Trust the domain
+                                    scope.launch {
+                                        if (registeredDomain.isNotBlank()) {
+                                            // Add to whitelist
+                                            TrustedDomainsPreferences.trustDomain(this@SmsDetailActivity, registeredDomain)
+
+                                            // Re-analyze all messages with this domain and update verdicts to GREEN
+                                            viewModel.trustDomainAndReanalyze(registeredDomain)
+
+                                            android.widget.Toast.makeText(
+                                                this@SmsDetailActivity,
+                                                "Domain added to whitelist",
+                                                android.widget.Toast.LENGTH_SHORT
+                                            ).show()
+                                        } else {
+                                            android.widget.Toast.makeText(
+                                                this@SmsDetailActivity,
+                                                "Unable to extract domain from this message",
+                                                android.widget.Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
+                                    }
+                                }
+                            } else null
+                        )
+                    }
+                }
             }
         }
     }
 }
+
+    override fun onResume() {
+        super.onResume()
+        // Register broadcast receiver for quota exceeded events
+        val filter = android.content.IntentFilter(
+            com.kite.phalanx.data.repository.SafeBrowsingRepository.ACTION_QUOTA_EXCEEDED
+        )
+        registerReceiver(quotaExceededReceiver, filter, android.content.Context.RECEIVER_NOT_EXPORTED)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // Unregister broadcast receiver
+        try {
+            unregisterReceiver(quotaExceededReceiver)
+        } catch (e: IllegalArgumentException) {
+            // Receiver not registered, ignore
+        }
+    }
+
+    /**
+     * Show dialog when Google Safe Browsing quota is exceeded.
+     */
+    private fun showQuotaExceededDialog() {
+        // Only show once per session
+        if (quotaExceededDialogShown) return
+        quotaExceededDialogShown = true
+
+        // Show toast notification instead of dialog (simpler in Compose context)
+        runOnUiThread {
+            android.widget.Toast.makeText(
+                this,
+                "Google Safe Browsing API quota exceeded. Please add your own API key in Settings.",
+                android.widget.Toast.LENGTH_LONG
+            ).show()
+
+            // Also launch Settings activity
+            val intent = Intent(this, SettingsActivity::class.java)
+            startActivity(intent)
+        }
+    }
 
     private fun readSmsMessages(sender: String): List<SmsMessage> {
         if (ContextCompat.checkSelfPermission(
@@ -1109,6 +1257,8 @@ internal fun SmsDetailScreen(
     selectedMessages: Set<Long>,
     scrollToIndex: Int,
     textSizeScale: Float,
+    verdictCache: Map<Long, com.kite.phalanx.domain.model.Verdict> = emptyMap(),
+    onSecurityChipClick: ((SmsMessage) -> Unit)? = null,
     onMessageLongClick: (SmsMessage) -> Unit,
     onMessageClick: (SmsMessage) -> Unit,
     listState: androidx.compose.foundation.lazy.LazyListState,
@@ -1177,6 +1327,8 @@ internal fun SmsDetailScreen(
                         showTimestamp = uiModel.showTimestamp,
                         isSelected = selectedMessages.contains(uiModel.message.timestamp),
                         textSizeScale = textSizeScale,
+                        verdict = verdictCache[uiModel.message.timestamp],
+                        onSecurityChipClick = onSecurityChipClick,
                         onLongClick = { onMessageLongClick(uiModel.message) },
                         onClick = { onMessageClick(uiModel.message) },
                         onRetry = onRetry
@@ -1194,6 +1346,8 @@ fun MessageBubble(
     showTimestamp: Boolean,
     isSelected: Boolean,
     textSizeScale: Float,
+    verdict: com.kite.phalanx.domain.model.Verdict? = null,
+    onSecurityChipClick: ((SmsMessage) -> Unit)? = null,
     onLongClick: () -> Unit,
     onClick: () -> Unit,
     onRetry: ((SmsMessage) -> Unit)? = null
@@ -1242,6 +1396,10 @@ fun MessageBubble(
         }
     }
 
+    // State for link confirmation dialog
+    var showLinkConfirmDialog by remember { mutableStateOf(false) }
+    var urlToOpen by remember { mutableStateOf<String?>(null) }
+
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = alignment
@@ -1288,13 +1446,28 @@ fun MessageBubble(
                 ) {
                     // Show text if present
                     if (message.body.isNotBlank()) {
-                        Text(
-                            text = message.body,
-                            color = textColor,
+                        val annotatedString = remember(message.body, textColor) {
+                            buildAnnotatedStringWithLinks(message.body, textColor)
+                        }
+
+                        ClickableText(
+                            text = annotatedString,
                             style = MaterialTheme.typography.bodyMedium.copy(
-                                fontSize = MaterialTheme.typography.bodyMedium.fontSize * textSizeScale
+                                fontSize = MaterialTheme.typography.bodyMedium.fontSize * textSizeScale,
+                                color = textColor
                             ),
-                            modifier = Modifier.weight(1f, fill = false)
+                            modifier = Modifier.weight(1f, fill = false),
+                            onClick = { offset ->
+                                annotatedString.getStringAnnotations(
+                                    tag = "URL",
+                                    start = offset,
+                                    end = offset
+                                ).firstOrNull()?.let { annotation ->
+                                    // Show confirmation dialog before opening URL
+                                    urlToOpen = annotation.item
+                                    showLinkConfirmDialog = true
+                                }
+                            }
                         )
                     }
 
@@ -1389,6 +1562,52 @@ fun MessageBubble(
                 )
             }
         }
+
+        // Show security chip for received messages with non-GREEN verdicts
+        if (!message.isSentByUser && verdict != null && verdict.level != VerdictLevel.GREEN) {
+            SecurityChip(
+                verdict = verdict,
+                registeredDomain = "", // TODO: Extract from link analysis
+                onClick = { onSecurityChipClick?.invoke(message) },
+                modifier = Modifier.padding(top = 8.dp)
+            )
+        }
+    }
+
+    // Link confirmation dialog
+    if (showLinkConfirmDialog && urlToOpen != null) {
+        AlertDialog(
+            onDismissRequest = { showLinkConfirmDialog = false },
+            title = { Text("Open Link?") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Are you sure you want to open this link?")
+                    Text(
+                        text = urlToOpen!!,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showLinkConfirmDialog = false
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(urlToOpen))
+                    context.startActivity(intent)
+                    urlToOpen = null
+                }) {
+                    Text("Open")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showLinkConfirmDialog = false
+                    urlToOpen = null
+                }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }
 
@@ -1833,3 +2052,51 @@ fun PinnedMessagesBlock(
     }
 }
 
+/**
+ * Helper function to build an AnnotatedString with clickable links.
+ * Detects URLs in text and makes them clickable with blue underlined styling.
+ */
+private fun buildAnnotatedStringWithLinks(text: String, baseColor: Color): AnnotatedString {
+    // Regex to match URLs (http, https, www)
+    val urlPattern = Regex(
+        """(?:(?:https?://)|(?:www\.))[^\s]+""",
+        RegexOption.IGNORE_CASE
+    )
+
+    return buildAnnotatedString {
+        var lastIndex = 0
+
+        urlPattern.findAll(text).forEach { matchResult ->
+            // Add text before the URL
+            if (matchResult.range.first > lastIndex) {
+                withStyle(style = SpanStyle(color = baseColor)) {
+                    append(text.substring(lastIndex, matchResult.range.first))
+                }
+            }
+
+            // Add the URL with annotation and styling
+            pushStringAnnotation(
+                tag = "URL",
+                annotation = matchResult.value
+            )
+            withStyle(
+                style = SpanStyle(
+                    color = Color(0xFF2196F3), // Blue for links
+                    textDecoration = TextDecoration.Underline
+                )
+            ) {
+                append(matchResult.value)
+            }
+            pop()
+
+            lastIndex = matchResult.range.last + 1
+        }
+
+        // Add remaining text after the last URL
+        if (lastIndex < text.length) {
+            withStyle(style = SpanStyle(color = baseColor)) {
+                append(text.substring(lastIndex))
+            }
+        }
+    }
+}

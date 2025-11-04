@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Archive
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Done
@@ -408,6 +409,16 @@ class SmsListActivity : ComponentActivity() {
                                             },
                                             leadingIcon = {
                                                 Icon(Icons.Default.Warning, contentDescription = null)
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Trusted domains") },
+                                            onClick = {
+                                                showOverflowMenu = false
+                                                startActivity(Intent(this@SmsListActivity, WhitelistedDomainsActivity::class.java))
+                                            },
+                                            leadingIcon = {
+                                                Icon(Icons.Default.CheckCircle, contentDescription = null)
                                             }
                                         )
                                     }

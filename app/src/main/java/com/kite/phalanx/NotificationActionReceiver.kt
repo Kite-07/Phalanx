@@ -34,6 +34,30 @@ class NotificationActionReceiver : BroadcastReceiver() {
                     NotificationHelper.cancelNotification(context, sender)
                 }
             }
+
+            NotificationHelper.ACTION_BLOCK_SENDER -> {
+                // Block the sender (add to blocked numbers)
+                val messageTimestamp = intent.getLongExtra(NotificationHelper.EXTRA_MESSAGE_TIMESTAMP, 0L)
+                SmsOperations.blockNumber(context, sender)
+                // Cancel all notifications from this sender
+                NotificationHelper.cancelNotification(context, sender)
+                // Also cancel the security threat notification
+                if (messageTimestamp != 0L) {
+                    val notificationManager = androidx.core.app.NotificationManagerCompat.from(context)
+                    notificationManager.cancel((sender + messageTimestamp).hashCode())
+                }
+            }
+
+            NotificationHelper.ACTION_DELETE_MESSAGE -> {
+                // Delete the specific message
+                val messageTimestamp = intent.getLongExtra(NotificationHelper.EXTRA_MESSAGE_TIMESTAMP, 0L)
+                if (messageTimestamp != 0L) {
+                    SmsOperations.deleteMessage(context, sender, messageTimestamp)
+                    // Cancel the security threat notification
+                    val notificationManager = androidx.core.app.NotificationManagerCompat.from(context)
+                    notificationManager.cancel((sender + messageTimestamp).hashCode())
+                }
+            }
         }
     }
 }

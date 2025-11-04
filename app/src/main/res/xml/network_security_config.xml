@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!--
+        Allow cleartext (HTTP) traffic for security analysis.
+        This is required for the URL expansion feature to analyze HTTP links.
+
+        NOTE: This ONLY affects network requests made by the app itself for security
+        analysis. It does NOT make the user's browsing less secure.
+    -->
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
