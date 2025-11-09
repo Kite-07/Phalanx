@@ -115,12 +115,15 @@ class SpamDetailActivity : ComponentActivity() {
                     AlertDialog(
                         onDismissRequest = { showDeleteConfirmDialog = false },
                         title = { Text("Delete Conversation?") },
-                        text = { Text("Are you sure you want to delete this conversation? This action cannot be undone.") },
+                        text = { Text("Are you sure you want to permanently delete this conversation? This action cannot be undone.") },
                         confirmButton = {
                             TextButton(onClick = {
                                 showDeleteConfirmDialog = false
-                                if (SmsOperations.deleteThread(this@SpamDetailActivity, sender)) {
-                                    finish()
+                                scope.launch {
+                                    // Permanently delete spam messages (don't use trash vault)
+                                    if (SmsOperations.deleteThread(this@SpamDetailActivity, sender, moveToTrashUseCase = null)) {
+                                        finish()
+                                    }
                                 }
                             }) {
                                 Text("Delete")

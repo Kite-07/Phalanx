@@ -82,6 +82,11 @@ dependencies {
     implementation(libs.icu4j)
     implementation(libs.jsoup)
 
+    // Phase 3: WorkManager (background tasks)
+    implementation(libs.androidx.work.runtime.ktx)
+    implementation(libs.androidx.hilt.work)
+    ksp(libs.hilt.compiler) // Already included above, but needed for Hilt Worker
+
     // Testing
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

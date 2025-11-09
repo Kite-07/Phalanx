@@ -1,7 +1,6 @@
 package com.kite.phalanx.domain.usecase
 
 import android.content.Context
-import com.kite.phalanx.TrustedDomainsPreferences
 import com.kite.phalanx.domain.model.*
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -15,6 +14,21 @@ import javax.inject.Inject
  * - Maps total score to GREEN/AMBER/RED verdict levels
  * - Generates explainable reasons for UI display
  *
+ * Phase 3 Integration: Allow/Block List Override
+ * - ALLOW rules force GREEN verdict (unless critical RED signal)
+ * - BLOCK rules elevate to RED verdict
+ * - Higher priority rules checked first
+ *
+ * Phase 3 Integration: Sensitivity Multiplier
+ * - Low (0): Score / 0.7 - Requires ~43% higher raw score to trigger alerts
+ * - Medium (1): Score × 1.0 - Default behavior (thresholds: 30, 70)
+ * - High (2): Score × 1.3 - Amplifies score by 30%, easier to trigger alerts
+ *
+ * Phase 4 Integration: Sender Intelligence
+ * - SENDER_MISMATCH: Message claims brand identity but sender doesn't match known patterns
+ * - Uses regional sender packs to verify sender authenticity
+ * - Detects impersonation of carriers, banks, government agencies
+ *
  * Signal Weights (deterministic, per PRD):
  * - USERINFO_IN_URL: 100 (CRITICAL → immediate RED)
  * - RAW_IP_HOST: 40
@@ -25,15 +39,20 @@ import javax.inject.Inject
  * - PUNYCODE_DOMAIN: 15
  * - NON_STANDARD_PORT: 20
  *
- * Verdict Thresholds (default sensitivity):
+ * Verdict Thresholds (medium/default sensitivity):
  * - GREEN: score < 30
  * - AMBER: 30 <= score < 70
  * - RED: score >= 70 OR any CRITICAL signal
  *
- * @property sensitivityLevel Sensitivity threshold (0-2: low, medium, high)
+ * Effective Thresholds by Sensitivity:
+ * - Low: GREEN < 43, AMBER < 100, RED >= 100
+ * - Medium: GREEN < 30, AMBER < 70, RED >= 70
+ * - High: GREEN < 23, AMBER < 54, RED >= 54
  */
 class AnalyzeMessageRiskUseCase @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val checkAllowBlockRulesUseCase: CheckAllowBlockRulesUseCase,
+    private val checkSenderMismatchUseCase: CheckSenderMismatchUseCase
 ) {
 
     companion object {
@@ -61,15 +80,51 @@ class AnalyzeMessageRiskUseCase @Inject constructor(
         private const val WEIGHT_URLHAUS_LISTED = 80              // URLhaus malware database hit
         // Note: PhishTank removed as registration is no longer available
 
-        // Verdict thresholds (can be adjusted by sensitivity slider)
+        // Verdict thresholds (default/medium sensitivity)
         private const val THRESHOLD_GREEN_AMBER = 30
         private const val THRESHOLD_AMBER_RED = 70
+
+        // Sensitivity multipliers (Phase 3)
+        private const val SENSITIVITY_LOW_DIVISOR = 0.7f      // Divide score (require higher raw score)
+        private const val SENSITIVITY_MEDIUM_MULTIPLIER = 1.0f // No change
+        private const val SENSITIVITY_HIGH_MULTIPLIER = 1.3f   // Amplify score (easier to trigger)
+    }
+
+    /**
+     * Get current sensitivity level from settings.
+     * 0 = Low, 1 = Medium (default), 2 = High
+     */
+    private fun getSensitivityLevel(): Int {
+        val prefs = context.getSharedPreferences("security_settings", android.content.Context.MODE_PRIVATE)
+        return prefs.getInt("sensitivity_level", 1) // Default: Medium
+    }
+
+    /**
+     * Apply sensitivity multiplier to score.
+     * - Low (0): Divide by 0.7 (requires higher raw score to trigger alerts)
+     * - Medium (1): No change
+     * - High (2): Multiply by 1.3 (amplifies score, easier to trigger alerts)
+     */
+    private fun applyMultiplier(score: Int, sensitivityLevel: Int): Int {
+        return when (sensitivityLevel) {
+            0 -> (score / SENSITIVITY_LOW_DIVISOR).toInt()  // Low: ~43% harder to trigger
+            1 -> score                                       // Medium: default behavior
+            2 -> (score * SENSITIVITY_HIGH_MULTIPLIER).toInt() // High: 30% easier to trigger
+            else -> score
+        }
     }
 
     /**
      * Analyze a message with extracted links and domain profiles.
      *
+     * Phase 3 Integration: Checks allow/block rules before security analysis.
+     * - ALLOW rules: return GREEN (unless critical signal like USERINFO_IN_URL)
+     * - BLOCK rules: return RED
+     * - No rule match: proceed with normal risk analysis
+     *
      * @param messageId Unique message identifier
+     * @param sender Sender phone number or short code
+     * @param messageBody Full message text
      * @param links List of links extracted from the message
      * @param domainProfiles Domain profiles for each link
      * @param expandedUrls Map of original URLs to ExpandedUrl objects (Stage 1B)
@@ -78,24 +133,36 @@ class AnalyzeMessageRiskUseCase @Inject constructor(
      */
     suspend fun execute(
         messageId: String,
+        sender: String,
+        messageBody: String,
         links: List<Link>,
         domainProfiles: List<DomainProfile>,
         expandedUrls: Map<String, ExpandedUrl> = emptyMap(),
         reputationResults: Map<String, List<ReputationResult>> = emptyMap()
     ): Verdict {
-        // Check if any domain is in the trusted whitelist
-        // If any domain is trusted, bypass all security checks and return GREEN
-        val trustedDomains = TrustedDomainsPreferences.getTrustedDomains(context)
-        for (profile in domainProfiles) {
-            if (trustedDomains.contains(profile.registeredDomain.lowercase())) {
-                // Domain is trusted - return GREEN verdict immediately
-                return Verdict(
-                    messageId = messageId,
-                    level = VerdictLevel.GREEN,
-                    score = 0,
-                    reasons = emptyList()
+        // Phase 3: Check allow/block list rules
+        // Extract domain from first link for rule checking (most messages have 1 link)
+        val primaryDomain = domainProfiles.firstOrNull()?.registeredDomain
+        val ruleAction = checkAllowBlockRulesUseCase.execute(
+            domain = primaryDomain,
+            sender = sender,
+            messageBody = messageBody
+        )
+
+        // Handle BLOCK rule: immediate RED verdict
+        if (ruleAction == com.kite.phalanx.data.source.local.entity.RuleAction.BLOCK) {
+            return Verdict(
+                messageId = messageId,
+                level = VerdictLevel.RED,
+                score = 100, // Maximum score for blocked content
+                reasons = listOf(
+                    Reason(
+                        code = SignalCode.USERINFO_IN_URL, // Using as placeholder for blocked
+                        label = "Blocked by User Rule",
+                        details = "This message matches a rule you created to block content from this sender or domain."
+                    )
                 )
-            }
+            )
         }
 
         // Detect all signals from links and profiles
@@ -110,17 +177,52 @@ class AnalyzeMessageRiskUseCase @Inject constructor(
             }
         }
 
+        // Phase 4: Check for sender mismatch (brand impersonation via sender ID)
+        val senderMismatchSignals = checkSenderMismatchUseCase.invoke(
+            senderId = sender,
+            messageBody = messageBody,
+            links = links,
+            domainProfiles = domainProfiles
+        )
+        signals.addAll(senderMismatchSignals)
+
         // Calculate total risk score
         val totalScore = signals.sumOf { it.weight }
 
         // Check for critical signals (immediate RED)
         val hasCriticalSignal = signals.any { it.code == SignalCode.USERINFO_IN_URL }
 
-        // Map score to verdict level
+        // Phase 3: Handle ALLOW rule override
+        // If ALLOW rule matched and no critical signals, force GREEN verdict
+        if (ruleAction == com.kite.phalanx.data.source.local.entity.RuleAction.ALLOW) {
+            return if (hasCriticalSignal) {
+                // Critical signals override ALLOW rules
+                Verdict(
+                    messageId = messageId,
+                    level = VerdictLevel.RED,
+                    score = totalScore,
+                    reasons = generateReasons(signals)
+                )
+            } else {
+                // ALLOW rule: force GREEN verdict
+                Verdict(
+                    messageId = messageId,
+                    level = VerdictLevel.GREEN,
+                    score = 0,
+                    reasons = emptyList()
+                )
+            }
+        }
+
+        // Phase 3: Apply sensitivity multiplier
+        val sensitivityLevel = getSensitivityLevel()
+        val effectiveScore = applyMultiplier(totalScore, sensitivityLevel)
+
+        // Map effective score to verdict level (sensitivity-adjusted)
         val level = when {
-            hasCriticalSignal -> VerdictLevel.RED
-            totalScore >= THRESHOLD_AMBER_RED -> VerdictLevel.RED
-            totalScore >= THRESHOLD_GREEN_AMBER -> VerdictLevel.AMBER
+            hasCriticalSignal -> VerdictLevel.RED // Critical signals always RED
+            effectiveScore >= THRESHOLD_AMBER_RED -> VerdictLevel.RED
+            effectiveScore >= THRESHOLD_GREEN_AMBER -> VerdictLevel.AMBER
             else -> VerdictLevel.GREEN
         }
 
@@ -130,7 +232,7 @@ class AnalyzeMessageRiskUseCase @Inject constructor(
         return Verdict(
             messageId = messageId,
             level = level,
-            score = totalScore,
+            score = totalScore, // Return original score for transparency
             reasons = reasons
         )
     }
@@ -492,6 +594,29 @@ class AnalyzeMessageRiskUseCase @Inject constructor(
                         label = "Malware Distribution Site",
                         details = "URLhaus has identified this link as distributing malware. Opening it could compromise your device security."
                     )
+
+                    // Phase 4: Sender Intelligence
+                    SignalCode.SENDER_MISMATCH -> {
+                        val claimedBrand = signal.metadata["claimedBrand"] ?: "unknown"
+                        val actualSender = signal.metadata["actualSender"] ?: "unknown"
+                        val brandType = signal.metadata["brandType"] ?: "UNKNOWN"
+
+                        val typeDescription = when (brandType) {
+                            "BANK" -> "bank"
+                            "GOVERNMENT" -> "government agency"
+                            "PAYMENT" -> "payment service"
+                            "CARRIER" -> "mobile carrier"
+                            "ECOMMERCE" -> "e-commerce site"
+                            "SERVICE" -> "service provider"
+                            else -> "organization"
+                        }
+
+                        Reason(
+                            code = signal.code,
+                            label = "Suspicious Sender for $claimedBrand",
+                            details = "This message claims to be from $claimedBrand ($typeDescription), but the sender ID ($actualSender) doesn't match their verified patterns. This is likely a scam."
+                        )
+                    }
 
                     else -> Reason(
                         code = signal.code,

@@ -18,6 +18,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.VideoCall
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -45,10 +46,12 @@ class ContactDetailActivity : ComponentActivity() {
             PhalanxTheme {
                 var contactPhotoUri by remember { mutableStateOf<Uri?>(null) }
                 var displayName by remember { mutableStateOf(contactName ?: phoneNumber) }
+                var contactExists by remember { mutableStateOf(false) }
 
                 // Load contact details
                 LaunchedEffect(phoneNumber) {
                     val details = loadContactDetails(phoneNumber)
+                    contactExists = details != null
                     details?.let {
                         contactPhotoUri = it.photoUri
                         if (contactName == null && it.name != null) {
@@ -76,6 +79,7 @@ class ContactDetailActivity : ComponentActivity() {
                         phoneNumber = phoneNumber,
                         displayName = displayName,
                         contactPhotoUri = contactPhotoUri,
+                        contactExists = contactExists,
                         onPhoneCallClick = {
                             makePhoneCall(phoneNumber)
                         },
@@ -84,6 +88,9 @@ class ContactDetailActivity : ComponentActivity() {
                         },
                         onContactInfoClick = {
                             openContactInfo(phoneNumber)
+                        },
+                        onAddContactClick = {
+                            addToContacts(phoneNumber, displayName)
                         },
                         modifier = Modifier.padding(innerPadding)
                     )
@@ -219,6 +226,27 @@ class ContactDetailActivity : ComponentActivity() {
         }
     }
 
+    private fun addToContacts(phoneNumber: String, displayName: String) {
+        try {
+            val intent = Intent(Intent.ACTION_INSERT).apply {
+                type = ContactsContract.Contacts.CONTENT_TYPE
+
+                // Pre-fill phone number
+                putExtra(ContactsContract.Intents.Insert.PHONE, phoneNumber)
+                putExtra(ContactsContract.Intents.Insert.PHONE_TYPE, ContactsContract.CommonDataKinds.Phone.TYPE_MOBILE)
+
+                // If displayName is different from phoneNumber, use it as the name
+                if (displayName != phoneNumber) {
+                    putExtra(ContactsContract.Intents.Insert.NAME, displayName)
+                }
+            }
+
+            startActivity(intent)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
     private data class ContactDetails(
         val name: String?,
         val photoUri: Uri?
@@ -230,9 +258,11 @@ private fun ContactDetailScreen(
     phoneNumber: String,
     displayName: String,
     contactPhotoUri: Uri?,
+    contactExists: Boolean,
     onPhoneCallClick: () -> Unit,
     onVideoCallClick: () -> Unit,
     onContactInfoClick: () -> Unit,
+    onAddContactClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -291,12 +321,20 @@ private fun ContactDetailScreen(
                 onClick = onVideoCallClick
             )
 
-            // Contact Info Button
-            ContactActionButton(
-                icon = Icons.Default.Info,
-                label = "Info",
-                onClick = onContactInfoClick
-            )
+            // Contact Info or Add to Contacts Button
+            if (contactExists) {
+                ContactActionButton(
+                    icon = Icons.Default.Info,
+                    label = "Info",
+                    onClick = onContactInfoClick
+                )
+            } else {
+                ContactActionButton(
+                    icon = Icons.Default.PersonAdd,
+                    label = "Add",
+                    onClick = onAddContactClick
+                )
+            }
         }
     }
 }

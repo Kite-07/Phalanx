@@ -112,33 +112,72 @@ Weights are deterministic; sensitivity slider shifts thresholds, not weights.
 
 ---
 
-## Phase 2 — Surfaces
+## Phase 2 — Surfaces ✅ **IMPLEMENTED**
 **Goal:** Visualize verdicts and alert only on issues.
 
 **Deliverables**
-1. **UI Decorator**: Compose chip + bottom sheet (Explain‑Why).  
-2. **Notifications Manager**: Amber/Red channels; actions Open Safely, Copy URL.
+1. ✅ **UI Decorator**: Compose chip + bottom sheet (Explain‑Why).
+2. ✅ **Notifications Manager**: Amber/Red channels; actions Copy URL, Block Sender, Delete Message, Trust Domain.
 
 **Acceptance**
-- No notification for Green.  
-- Chip shows final domain + color; bottom sheet lists top reasons (mapped labels).
+- ✅ No notification for Green.
+- ✅ Chip shows registered domain + color; bottom sheet lists top 3 reasons with mapped labels and icons.
+
+**Implementation Details (Completed 2025-01-06)**
+- **SecurityChip**: Color-coded chips (GREEN/AMBER/RED) shown under received messages with non-GREEN verdicts
+- **SecurityExplanationSheet**: Modal bottom sheet with:
+  - Verdict level header with domain
+  - Top 3 reasons with icons and explanations
+  - Link destination (final expanded URL after redirects)
+  - Protective Actions: Block Sender, Delete Message
+  - Link Actions: Copy URL (copies final expanded URL to clipboard)
+  - Other Actions: Trust This Domain (whitelisting with re-analysis)
+- **Threat Notifications**: High-priority notifications for AMBER/RED verdicts with dedicated channel
+- **Clickable Links**: Blue underlined links in message bubbles
+- **Domain Display**: Registered domain shown in SecurityChip
+- **URL Expansion Caching**: Final URLs cached and displayed in explanation sheet
+
+**Files**: SecurityComponents.kt, SmsDetailViewModel.kt, SmsDetailActivity.kt, NotificationHelper.kt
 
 **Dependencies:** Phase 1 pipeline.
 
 ---
 
-## Phase 3 — Safety Rails
+## Phase 3 — Safety Rails ✅ **IMPLEMENTED**
 **Goal:** User control + reversible cleanup.
 
 **Deliverables**
-1. **Trash Vault**: soft-delete, 30‑day retention, Restore, auto‑purge (WorkManager). Default SMS: real provider delete; Assist Mode: local hide.  
-2. **Allow/Block Lists**: sender/domain/pattern with precedence rules.  
-3. **Settings**: sensitivity slider, per‑SIM toggles, OTP pass‑through, feature flags.
+1. ✅ **Trash Vault**: soft-delete, 30‑day retention, Restore, auto‑purge (WorkManager). Default SMS: real provider delete; Assist Mode: local hide.
+2. ✅ **Allow/Block Lists**: sender/domain/pattern with precedence rules.
+3. ✅ **Settings**: sensitivity slider, per‑SIM toggles, OTP pass‑through, feature flags.
 
 **Acceptance**
-- Restore returns message to original thread (or un‑hides in Assist Mode).  
-- Sensitivity changes verdicts without code change.  
-- Allowlisted sender/domain forces Green unless **critical Red** rule is present.
+- ✅ Restore returns message to original thread (or un‑hides in Assist Mode).
+- ✅ Sensitivity changes verdicts without code change.
+- ✅ Allowlisted sender/domain forces Green unless **critical Red** rule is present.
+
+**Implementation Details (Completed 2025-01-08)**
+- **Trash Vault**:
+  - TrashedMessageEntity with threadGroupId for grouping messages deleted together
+  - UUID-based grouping for thread deletions (entire conversations shown as one entry)
+  - Room database v3 with migration from v2 (added threadGroupId column and index)
+  - TrashVaultRepository with thread group operations (restore, delete, query)
+  - MoveToTrashUseCase and RestoreMessageUseCase with thread group support
+  - TrashVaultActivity UI showing grouped items with message count badges
+  - Accessible via three-dot menu in SmsListActivity
+  - Auto-purge capability implemented (WorkManager integration ready)
+- **Allow/Block Lists**:
+  - AllowBlockRuleEntity and AllowBlockListRepository
+  - Domain whitelisting (Trust This Domain) with automatic re-analysis
+  - Sender blocking via system BlockedNumbers provider
+  - AllowBlockListActivity UI for managing rules
+- **Security Settings**:
+  - SecuritySettingsActivity with sensitivity slider (Low/Medium/High)
+  - Per-SIM security toggles for dual-SIM devices
+  - OTP pass-through toggle (auto-allow OTP messages)
+  - Settings persistence via SharedPreferences (Proto DataStore ready)
+
+**Files**: TrashedMessageEntity.kt, TrashVaultRepository.kt, MoveToTrashUseCase.kt, RestoreMessageUseCase.kt, TrashVaultActivity.kt, AllowBlockListActivity.kt, SecuritySettingsActivity.kt, AppDatabase.kt (v3), DatabaseModule.kt
 
 **Dependencies:** Phase 2 UI surfaces; Telephony provider (if default).
 

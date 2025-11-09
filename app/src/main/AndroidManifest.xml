@@ -96,6 +96,26 @@
             android:name="com.kite.phalanx.WhitelistedDomainsActivity"
             android:exported="false" />
 
+        <!-- Phase 4: First-Run Flow -->
+        <activity
+            android:name="com.kite.phalanx.FirstRunActivity"
+            android:exported="false"
+            android:label="Welcome to Phalanx" />
+
+        <!-- Phase 3: Safety Rails UI -->
+        <activity
+            android:name="com.kite.phalanx.ui.TrashVaultActivity"
+            android:exported="false"
+            android:label="Trash Vault" />
+        <activity
+            android:name="com.kite.phalanx.ui.AllowBlockListActivity"
+            android:exported="false"
+            android:label="Allow/Block Lists" />
+        <activity
+            android:name="com.kite.phalanx.ui.SecuritySettingsActivity"
+            android:exported="false"
+            android:label="Security Settings" />
+
         <!-- SMS Receiver for incoming messages -->
         <receiver
             android:name="com.kite.phalanx.SmsReceiver"

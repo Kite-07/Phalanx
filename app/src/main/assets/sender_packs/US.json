@@ -1,0 +1,280 @@
+{
+  "version": 20250109001,
+  "entries": [
+    {
+      "pattern": "^(VZW|VERIZON)$",
+      "brand": "Verizon",
+      "type": "CARRIER",
+      "keywords": [
+        "verizon",
+        "vzw"
+      ]
+    },
+    {
+      "pattern": "^(ATT|AT&T)$",
+      "brand": "AT&T",
+      "type": "CARRIER",
+      "keywords": [
+        "at&t",
+        "att",
+        "at and t"
+      ]
+    },
+    {
+      "pattern": "^(T-MOBILE|TMUS|TMO)$",
+      "brand": "T-Mobile",
+      "type": "CARRIER",
+      "keywords": [
+        "t-mobile",
+        "t mobile",
+        "tmobile"
+      ]
+    },
+    {
+      "pattern": "^SPRINT$",
+      "brand": "Sprint",
+      "type": "CARRIER",
+      "keywords": [
+        "sprint"
+      ]
+    },
+    {
+      "pattern": "^(BOFA|BANKOFAMERICA|BofA)$",
+      "brand": "Bank of America",
+      "type": "BANK",
+      "keywords": [
+        "bank of america",
+        "bofa",
+        "boa"
+      ]
+    },
+    {
+      "pattern": "^(CHASE|JPMChase)$",
+      "brand": "Chase",
+      "type": "BANK",
+      "keywords": [
+        "chase",
+        "chase bank",
+        "jp morgan"
+      ]
+    },
+    {
+      "pattern": "^(WELLSFARGO|WF|Wells)$",
+      "brand": "Wells Fargo",
+      "type": "BANK",
+      "keywords": [
+        "wells fargo",
+        "wellsfargo"
+      ]
+    },
+    {
+      "pattern": "^(CITI|CITIBANK)$",
+      "brand": "Citi",
+      "type": "BANK",
+      "keywords": [
+        "citi",
+        "citibank",
+        "citigroup"
+      ]
+    },
+    {
+      "pattern": "^(CAPITALONE|CapOne)$",
+      "brand": "Capital One",
+      "type": "BANK",
+      "keywords": [
+        "capital one",
+        "capitalone"
+      ]
+    },
+    {
+      "pattern": "^USBANK$",
+      "brand": "US Bank",
+      "type": "BANK",
+      "keywords": [
+        "us bank",
+        "usbank",
+        "u.s. bank"
+      ]
+    },
+    {
+      "pattern": "^(AMEX|AMERICANEXPRESS)$",
+      "brand": "American Express",
+      "type": "BANK",
+      "keywords": [
+        "american express",
+        "amex",
+        "amexpress"
+      ]
+    },
+    {
+      "pattern": "^(DISCOVER|DiscoverCard)$",
+      "brand": "Discover",
+      "type": "BANK",
+      "keywords": [
+        "discover",
+        "discover card"
+      ]
+    },
+    {
+      "pattern": "^USPS$",
+      "brand": "USPS",
+      "type": "GOVERNMENT",
+      "keywords": [
+        "usps",
+        "united states postal service",
+        "us postal"
+      ]
+    },
+    {
+      "pattern": "^SSA$",
+      "brand": "Social Security Administration",
+      "type": "GOVERNMENT",
+      "keywords": [
+        "social security",
+        "ssa"
+      ]
+    },
+    {
+      "pattern": "^PAYPAL$",
+      "brand": "PayPal",
+      "type": "PAYMENT",
+      "keywords": [
+        "paypal"
+      ]
+    },
+    {
+      "pattern": "^VENMO$",
+      "brand": "Venmo",
+      "type": "PAYMENT",
+      "keywords": [
+        "venmo"
+      ]
+    },
+    {
+      "pattern": "^(CASHAPP|CashApp)$",
+      "brand": "Cash App",
+      "type": "PAYMENT",
+      "keywords": [
+        "cash app",
+        "cashapp",
+        "square cash"
+      ]
+    },
+    {
+      "pattern": "^ZELLE$",
+      "brand": "Zelle",
+      "type": "PAYMENT",
+      "keywords": [
+        "zelle"
+      ]
+    },
+    {
+      "pattern": "^(AMAZON|AMZN)$",
+      "brand": "Amazon",
+      "type": "ECOMMERCE",
+      "keywords": [
+        "amazon"
+      ]
+    },
+    {
+      "pattern": "^WALMART$",
+      "brand": "Walmart",
+      "type": "ECOMMERCE",
+      "keywords": [
+        "walmart",
+        "wal-mart"
+      ]
+    },
+    {
+      "pattern": "^TARGET$",
+      "brand": "Target",
+      "type": "ECOMMERCE",
+      "keywords": [
+        "target"
+      ]
+    },
+    {
+      "pattern": "^EBAY$",
+      "brand": "eBay",
+      "type": "ECOMMERCE",
+      "keywords": [
+        "ebay"
+      ]
+    },
+    {
+      "pattern": "^(BESTBUY|BestBuy)$",
+      "brand": "Best Buy",
+      "type": "ECOMMERCE",
+      "keywords": [
+        "best buy",
+        "bestbuy"
+      ]
+    },
+    {
+      "pattern": "^(DOORDASH|DoorDash)$",
+      "brand": "DoorDash",
+      "type": "SERVICE",
+      "keywords": [
+        "doordash",
+        "door dash"
+      ]
+    },
+    {
+      "pattern": "^(UBER|UberEats)$",
+      "brand": "Uber",
+      "type": "SERVICE",
+      "keywords": [
+        "uber",
+        "uber eats"
+      ]
+    },
+    {
+      "pattern": "^LYFT$",
+      "brand": "Lyft",
+      "type": "SERVICE",
+      "keywords": [
+        "lyft"
+      ]
+    },
+    {
+      "pattern": "^(GRUBHUB|GrubHub)$",
+      "brand": "Grubhub",
+      "type": "SERVICE",
+      "keywords": [
+        "grubhub",
+        "grub hub"
+      ]
+    },
+    {
+      "pattern": "^(FEDEX|FedEx)$",
+      "brand": "FedEx",
+      "type": "SERVICE",
+      "keywords": [
+        "fedex",
+        "federal express"
+      ]
+    },
+    {
+      "pattern": "^UPS$",
+      "brand": "UPS",
+      "type": "SERVICE",
+      "keywords": [
+        "ups",
+        "united parcel service"
+      ]
+    },
+    {
+      "pattern": "^(DELTA|DeltaAir)$",
+      "brand": "Delta",
+      "type": "SERVICE",
+      "keywords": [
+        "delta",
+        "delta airlines",
+        "delta air lines"
+      ]
+    }
+  ],
+  "signature": "eb798c941cb7709a34ad5166b3a0d37e79b27af0b52bd6dbf3ebd4c3e61eb0f89c0dc578e9b05cbe1e510f3604eb1f39838482697ac927b636f9c376ff2c6f0a",
+  "timestamp": 1736410800000,
+  "region": "US"
+}

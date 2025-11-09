@@ -3,8 +3,10 @@ package com.kite.phalanx.di
 import android.content.Context
 import androidx.room.Room
 import com.kite.phalanx.data.source.local.AppDatabase
+import com.kite.phalanx.data.source.local.dao.AllowBlockRuleDao
 import com.kite.phalanx.data.source.local.dao.CachedExpansionDao
 import com.kite.phalanx.data.source.local.dao.SignalDao
+import com.kite.phalanx.data.source.local.dao.TrashedMessageDao
 import com.kite.phalanx.data.source.local.dao.VerdictDao
 import dagger.Module
 import dagger.Provides
@@ -15,6 +17,9 @@ import javax.inject.Singleton
 
 /**
  * Hilt module for Room database dependencies.
+ *
+ * Phase 1: Security analysis (verdicts, signals, cache)
+ * Phase 3: Safety rails (trash vault, allow/block lists)
  */
 @Module
 @InstallIn(SingletonComponent::class)
@@ -28,10 +33,12 @@ object DatabaseModule {
             AppDatabase::class.java,
             AppDatabase.DATABASE_NAME
         )
-            .fallbackToDestructiveMigration()
+            .addMigrations(AppDatabase.MIGRATION_2_3)
+            .fallbackToDestructiveMigration() // Fallback for other migrations during development
             .build()
     }
 
+    // Phase 1 DAOs
     @Provides
     fun provideCachedExpansionDao(database: AppDatabase): CachedExpansionDao {
         return database.cachedExpansionDao()
@@ -45,5 +52,16 @@ object DatabaseModule {
     @Provides
     fun provideVerdictDao(database: AppDatabase): VerdictDao {
         return database.verdictDao()
+    }
+
+    // Phase 3 DAOs
+    @Provides
+    fun provideTrashedMessageDao(database: AppDatabase): TrashedMessageDao {
+        return database.trashedMessageDao()
+    }
+
+    @Provides
+    fun provideAllowBlockRuleDao(database: AppDatabase): AllowBlockRuleDao {
+        return database.allowBlockRuleDao()
     }
 }

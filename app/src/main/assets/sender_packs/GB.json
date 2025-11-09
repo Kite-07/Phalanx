@@ -1,0 +1,250 @@
+{
+  "version": 20250109001,
+  "entries": [
+    {
+      "pattern": "^(EE|EE-UK)$",
+      "brand": "EE",
+      "type": "CARRIER",
+      "keywords": [
+        "ee",
+        "everything everywhere"
+      ]
+    },
+    {
+      "pattern": "^(O2|O2-UK)$",
+      "brand": "O2",
+      "type": "CARRIER",
+      "keywords": [
+        "o2",
+        "o2 uk"
+      ]
+    },
+    {
+      "pattern": "^(VODAFONE|VodafoneUK)$",
+      "brand": "Vodafone",
+      "type": "CARRIER",
+      "keywords": [
+        "vodafone"
+      ]
+    },
+    {
+      "pattern": "^THREE$",
+      "brand": "Three",
+      "type": "CARRIER",
+      "keywords": [
+        "three",
+        "3 mobile"
+      ]
+    },
+    {
+      "pattern": "^(BARCLAYS|Barclays)$",
+      "brand": "Barclays",
+      "type": "BANK",
+      "keywords": [
+        "barclays",
+        "barclays bank"
+      ]
+    },
+    {
+      "pattern": "^(HSBC|HSBCBank)$",
+      "brand": "HSBC",
+      "type": "BANK",
+      "keywords": [
+        "hsbc",
+        "hsbc bank"
+      ]
+    },
+    {
+      "pattern": "^(LLOYDS|LloydsBank)$",
+      "brand": "Lloyds",
+      "type": "BANK",
+      "keywords": [
+        "lloyds",
+        "lloyds bank",
+        "lloyds banking group"
+      ]
+    },
+    {
+      "pattern": "^(NATWEST|NatWest)$",
+      "brand": "NatWest",
+      "type": "BANK",
+      "keywords": [
+        "natwest",
+        "national westminster"
+      ]
+    },
+    {
+      "pattern": "^(SANTANDER|SantanderUK)$",
+      "brand": "Santander",
+      "type": "BANK",
+      "keywords": [
+        "santander"
+      ]
+    },
+    {
+      "pattern": "^(RBS|RoyalBank)$",
+      "brand": "Royal Bank of Scotland",
+      "type": "BANK",
+      "keywords": [
+        "rbs",
+        "royal bank of scotland"
+      ]
+    },
+    {
+      "pattern": "^(TSB|TSBBank)$",
+      "brand": "TSB",
+      "type": "BANK",
+      "keywords": [
+        "tsb",
+        "tsb bank"
+      ]
+    },
+    {
+      "pattern": "^(NATIONWIDE|Nationwide)$",
+      "brand": "Nationwide",
+      "type": "BANK",
+      "keywords": [
+        "nationwide",
+        "nationwide building society"
+      ]
+    },
+    {
+      "pattern": "^(HMRC|HM-Revenue)$",
+      "brand": "HMRC",
+      "type": "GOVERNMENT",
+      "keywords": [
+        "hmrc",
+        "hm revenue",
+        "tax office"
+      ]
+    },
+    {
+      "pattern": "^(NHS|NHS-UK)$",
+      "brand": "NHS",
+      "type": "GOVERNMENT",
+      "keywords": [
+        "nhs",
+        "national health service"
+      ]
+    },
+    {
+      "pattern": "^(DVLA|DVLAUK)$",
+      "brand": "DVLA",
+      "type": "GOVERNMENT",
+      "keywords": [
+        "dvla",
+        "driver and vehicle licensing"
+      ]
+    },
+    {
+      "pattern": "^(ROYALMAIL|RoyalMail)$",
+      "brand": "Royal Mail",
+      "type": "SERVICE",
+      "keywords": [
+        "royal mail"
+      ]
+    },
+    {
+      "pattern": "^PAYPAL$",
+      "brand": "PayPal",
+      "type": "PAYMENT",
+      "keywords": [
+        "paypal"
+      ]
+    },
+    {
+      "pattern": "^(REVOLUT|Revolut)$",
+      "brand": "Revolut",
+      "type": "PAYMENT",
+      "keywords": [
+        "revolut"
+      ]
+    },
+    {
+      "pattern": "^(MONZO|MonzoBank)$",
+      "brand": "Monzo",
+      "type": "PAYMENT",
+      "keywords": [
+        "monzo"
+      ]
+    },
+    {
+      "pattern": "^(STARLING|StarlingBnk)$",
+      "brand": "Starling Bank",
+      "type": "PAYMENT",
+      "keywords": [
+        "starling",
+        "starling bank"
+      ]
+    },
+    {
+      "pattern": "^AMAZON$",
+      "brand": "Amazon",
+      "type": "ECOMMERCE",
+      "keywords": [
+        "amazon"
+      ]
+    },
+    {
+      "pattern": "^(TESCO|TescoUK)$",
+      "brand": "Tesco",
+      "type": "ECOMMERCE",
+      "keywords": [
+        "tesco"
+      ]
+    },
+    {
+      "pattern": "^(ASDA|AsdaUK)$",
+      "brand": "Asda",
+      "type": "ECOMMERCE",
+      "keywords": [
+        "asda"
+      ]
+    },
+    {
+      "pattern": "^(SAINSBURY|Sainsburys)$",
+      "brand": "Sainsbury's",
+      "type": "ECOMMERCE",
+      "keywords": [
+        "sainsbury",
+        "sainsburys"
+      ]
+    },
+    {
+      "pattern": "^(ARGOS|ArgosUK)$",
+      "brand": "Argos",
+      "type": "ECOMMERCE",
+      "keywords": [
+        "argos"
+      ]
+    },
+    {
+      "pattern": "^(JUSTEAT|JustEat)$",
+      "brand": "Just Eat",
+      "type": "SERVICE",
+      "keywords": [
+        "just eat",
+        "justeat"
+      ]
+    },
+    {
+      "pattern": "^DELIVEROO$",
+      "brand": "Deliveroo",
+      "type": "SERVICE",
+      "keywords": [
+        "deliveroo"
+      ]
+    },
+    {
+      "pattern": "^UBER$",
+      "brand": "Uber",
+      "type": "SERVICE",
+      "keywords": [
+        "uber"
+      ]
+    }
+  ],
+  "signature": "87a1dc3fbbfa26f8bacbb8f0b738115a63cbcafd44539084f59d829d93e770cd64896dd5c1b262f5ba71d239fbe2ebc4ff568d4edd34c0fbfcb9501ba0e5650e",
+  "timestamp": 1736410800000,
+  "region": "GB"
+}

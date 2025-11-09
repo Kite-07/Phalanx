@@ -13,3 +13,8 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Ed25519 Private Keys (NEVER COMMIT!)
+ed25519_private_key.pem
+*.pem
+ed25519_public_key.txt

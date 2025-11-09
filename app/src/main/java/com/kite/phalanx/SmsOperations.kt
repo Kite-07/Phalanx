@@ -77,8 +77,21 @@ object SmsOperations {
 
     /**
      * Deletes all messages from a specific sender/thread
+     *
+     * Phase 3 Integration: Supports soft-delete via trash vault (30-day retention).
+     * - If moveToTrashUseCase is provided: moves all messages to trash (soft delete)
+     * - If moveToTrashUseCase is null: performs immediate permanent deletion (backward compatible)
+     *
+     * @param context Application context
+     * @param sender Message sender phone number
+     * @param moveToTrashUseCase Optional use case for soft-delete. If null, performs hard delete.
+     * @return true if deleted/moved to trash successfully
      */
-    fun deleteThread(context: Context, sender: String): Boolean {
+    suspend fun deleteThread(
+        context: Context,
+        sender: String,
+        moveToTrashUseCase: com.kite.phalanx.domain.usecase.MoveToTrashUseCase? = null
+    ): Boolean {
         return try {
             // Check if app is default SMS app using both methods
             val defaultSmsPackage = Telephony.Sms.getDefaultSmsPackage(context)
@@ -104,6 +117,133 @@ object SmsOperations {
                 return false
             }
 
+            // If trash vault use case provided, perform soft delete for all messages
+            if (moveToTrashUseCase != null) {
+                // Generate a unique thread group ID for this deletion
+                val threadGroupId = java.util.UUID.randomUUID().toString()
+
+                // Query all messages for this sender
+                val messagesToTrash = mutableListOf<Pair<Long, android.content.ContentValues>>()
+
+                val projection = arrayOf(
+                    Telephony.Sms._ID,
+                    Telephony.Sms.ADDRESS,
+                    Telephony.Sms.BODY,
+                    Telephony.Sms.DATE,
+                    Telephony.Sms.THREAD_ID,
+                    Telephony.Sms.SUBSCRIPTION_ID
+                )
+
+                // First try exact match with the sender
+                var selection = "${Telephony.Sms.ADDRESS} = ?"
+                var selectionArgs = arrayOf(sender)
+
+                context.contentResolver.query(
+                    Telephony.Sms.CONTENT_URI,
+                    projection,
+                    selection,
+                    selectionArgs,
+                    null
+                )?.use { cursor ->
+                    val idIndex = cursor.getColumnIndexOrThrow(Telephony.Sms._ID)
+                    val addressIndex = cursor.getColumnIndexOrThrow(Telephony.Sms.ADDRESS)
+                    val bodyIndex = cursor.getColumnIndexOrThrow(Telephony.Sms.BODY)
+                    val dateIndex = cursor.getColumnIndexOrThrow(Telephony.Sms.DATE)
+                    val threadIdIndex = cursor.getColumnIndexOrThrow(Telephony.Sms.THREAD_ID)
+                    val subIdIndex = cursor.getColumnIndexOrThrow(Telephony.Sms.SUBSCRIPTION_ID)
+
+                    while (cursor.moveToNext()) {
+                        val messageId = cursor.getLong(idIndex)
+                        val values = android.content.ContentValues().apply {
+                            put("body", cursor.getString(bodyIndex) ?: "")
+                            put("date", cursor.getLong(dateIndex))
+                            put("thread_id", cursor.getLong(threadIdIndex))
+                            put("subscription_id", cursor.getInt(subIdIndex))
+                        }
+                        messagesToTrash.add(messageId to values)
+                    }
+                }
+
+                // If no exact matches found, try normalized matching as fallback
+                // This handles cases where phone number format varies (e.g., +1234567890 vs 234567890)
+                if (messagesToTrash.isEmpty()) {
+                    val normalizedSender = sender.replace(Regex("[^0-9]"), "").takeLast(10)
+
+                    context.contentResolver.query(
+                        Telephony.Sms.CONTENT_URI,
+                        projection,
+                        null,
+                        null,
+                        null
+                    )?.use { cursor ->
+                        val idIndex = cursor.getColumnIndexOrThrow(Telephony.Sms._ID)
+                        val addressIndex = cursor.getColumnIndexOrThrow(Telephony.Sms.ADDRESS)
+                        val bodyIndex = cursor.getColumnIndexOrThrow(Telephony.Sms.BODY)
+                        val dateIndex = cursor.getColumnIndexOrThrow(Telephony.Sms.DATE)
+                        val threadIdIndex = cursor.getColumnIndexOrThrow(Telephony.Sms.THREAD_ID)
+                        val subIdIndex = cursor.getColumnIndexOrThrow(Telephony.Sms.SUBSCRIPTION_ID)
+
+                        while (cursor.moveToNext()) {
+                            val address = cursor.getString(addressIndex) ?: continue
+                            val normalizedAddress = address.replace(Regex("[^0-9]"), "").takeLast(10)
+
+                            // Match on last 10 digits (standard phone number length)
+                            if (normalizedAddress == normalizedSender && normalizedSender.length >= 7) {
+                                val messageId = cursor.getLong(idIndex)
+                                val values = android.content.ContentValues().apply {
+                                    put("body", cursor.getString(bodyIndex) ?: "")
+                                    put("date", cursor.getLong(dateIndex))
+                                    put("thread_id", cursor.getLong(threadIdIndex))
+                                    put("subscription_id", cursor.getInt(subIdIndex))
+                                }
+                                messagesToTrash.add(messageId to values)
+                            }
+                        }
+                    }
+                }
+
+                // Move all messages to trash with the same threadGroupId
+                var movedCount = 0
+                messagesToTrash.forEach { (messageId, values) ->
+                    try {
+                        moveToTrashUseCase.execute(
+                            messageId = messageId,
+                            sender = sender,
+                            body = values.getAsString("body") ?: "",
+                            timestamp = values.getAsLong("date") ?: 0L,
+                            threadId = values.getAsLong("thread_id") ?: 0L,
+                            isMms = false,
+                            subscriptionId = values.getAsInteger("subscription_id") ?: -1,
+                            threadGroupId = threadGroupId // All messages share the same group ID
+                        )
+
+                        // After moving to trash, perform hard delete from SMS provider
+                        context.contentResolver.delete(
+                            Telephony.Sms.CONTENT_URI,
+                            "${Telephony.Sms._ID} = ?",
+                            arrayOf(messageId.toString())
+                        )
+                        movedCount++
+                    } catch (e: Exception) {
+                        // Continue with next message even if one fails
+                    }
+                }
+
+                if (movedCount > 0) {
+                    val message = if (movedCount == 1) {
+                        "Moved 1 message to trash"
+                    } else {
+                        "Moved conversation ($movedCount messages) to trash"
+                    }
+                    Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, "No messages found to delete", Toast.LENGTH_SHORT).show()
+                }
+
+                return movedCount > 0
+            }
+
+            // Fallback: Hard delete (backward compatible)
             // Try deleting with exact address match
             var deleted = context.contentResolver.delete(
                 Telephony.Sms.CONTENT_URI,
@@ -111,43 +251,46 @@ object SmsOperations {
                 arrayOf(sender)
             )
 
-            // If no messages deleted, try with LIKE to handle different number formats
+            // If no messages deleted, try normalized matching to handle different number formats
             if (deleted == 0) {
-                // Get all message IDs for this sender using a query
-                val idsToDelete = mutableListOf<String>()
-                context.contentResolver.query(
-                    Telephony.Sms.CONTENT_URI,
-                    arrayOf(Telephony.Sms._ID, Telephony.Sms.ADDRESS),
-                    null,
-                    null,
-                    null
-                )?.use { cursor ->
-                    val idIndex = cursor.getColumnIndex(Telephony.Sms._ID)
-                    val addressIndex = cursor.getColumnIndex(Telephony.Sms.ADDRESS)
+                val normalizedSender = sender.replace(Regex("[^0-9]"), "").takeLast(10)
 
-                    while (cursor.moveToNext()) {
-                        val address = cursor.getString(addressIndex)
-                        // Normalize both numbers for comparison (remove spaces, dashes, etc)
-                        val normalizedAddress = address.replace(Regex("[^0-9+]"), "")
-                        val normalizedSender = sender.replace(Regex("[^0-9+]"), "")
+                // Only attempt fallback if we have a valid phone number
+                if (normalizedSender.length >= 7) {
+                    // Get all message IDs for this sender using a query
+                    val idsToDelete = mutableListOf<String>()
+                    context.contentResolver.query(
+                        Telephony.Sms.CONTENT_URI,
+                        arrayOf(Telephony.Sms._ID, Telephony.Sms.ADDRESS),
+                        null,
+                        null,
+                        null
+                    )?.use { cursor ->
+                        val idIndex = cursor.getColumnIndex(Telephony.Sms._ID)
+                        val addressIndex = cursor.getColumnIndex(Telephony.Sms.ADDRESS)
 
-                        if (normalizedAddress.endsWith(normalizedSender) ||
-                            normalizedSender.endsWith(normalizedAddress)) {
-                            idsToDelete.add(cursor.getString(idIndex))
+                        while (cursor.moveToNext()) {
+                            val address = cursor.getString(addressIndex) ?: continue
+                            val normalizedAddress = address.replace(Regex("[^0-9]"), "").takeLast(10)
+
+                            // Match on last 10 digits (standard phone number length)
+                            if (normalizedAddress == normalizedSender) {
+                                idsToDelete.add(cursor.getString(idIndex))
+                            }
                         }
                     }
-                }
 
-                // Delete by IDs
-                idsToDelete.forEach { id ->
-                    context.contentResolver.delete(
-                        Telephony.Sms.CONTENT_URI,
-                        "${Telephony.Sms._ID} = ?",
-                        arrayOf(id)
-                    )
-                }
+                    // Delete by IDs
+                    idsToDelete.forEach { id ->
+                        context.contentResolver.delete(
+                            Telephony.Sms.CONTENT_URI,
+                            "${Telephony.Sms._ID} = ?",
+                            arrayOf(id)
+                        )
+                    }
 
-                deleted = idsToDelete.size
+                    deleted = idsToDelete.size
+                }
             }
 
             if (deleted > 0) {
@@ -167,9 +310,24 @@ object SmsOperations {
     }
 
     /**
-     * Deletes a single message by timestamp and sender
+     * Deletes a single message by timestamp and sender.
+     *
+     * Phase 3 Integration: Supports soft-delete via trash vault (30-day retention).
+     * - If moveToTrashUseCase is provided: queries message details and moves to trash (soft delete)
+     * - If moveToTrashUseCase is null: performs immediate permanent deletion (backward compatible)
+     *
+     * @param context Application context
+     * @param sender Message sender phone number
+     * @param timestamp Message timestamp in milliseconds
+     * @param moveToTrashUseCase Optional use case for soft-delete. If null, performs hard delete.
+     * @return true if deleted/moved to trash successfully
      */
-    fun deleteMessage(context: Context, sender: String, timestamp: Long): Boolean {
+    suspend fun deleteMessage(
+        context: Context,
+        sender: String,
+        timestamp: Long,
+        moveToTrashUseCase: com.kite.phalanx.domain.usecase.MoveToTrashUseCase? = null
+    ): Boolean {
         return try {
             // Check if app is default SMS app using both methods
             val defaultSmsPackage = Telephony.Sms.getDefaultSmsPackage(context)
@@ -194,6 +352,59 @@ object SmsOperations {
                 return false
             }
 
+            // If trash vault use case provided, perform soft delete
+            if (moveToTrashUseCase != null) {
+                // Query the message to get full details for trash vault
+                val projection = arrayOf(
+                    Telephony.Sms._ID,
+                    Telephony.Sms.BODY,
+                    Telephony.Sms.THREAD_ID,
+                    Telephony.Sms.SUBSCRIPTION_ID
+                )
+
+                context.contentResolver.query(
+                    Telephony.Sms.CONTENT_URI,
+                    projection,
+                    "${Telephony.Sms.ADDRESS} = ? AND ${Telephony.Sms.DATE} = ?",
+                    arrayOf(sender, timestamp.toString()),
+                    null
+                )?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        val messageId = cursor.getLong(cursor.getColumnIndexOrThrow(Telephony.Sms._ID))
+                        val body = cursor.getString(cursor.getColumnIndexOrThrow(Telephony.Sms.BODY)) ?: ""
+                        val threadId = cursor.getLong(cursor.getColumnIndexOrThrow(Telephony.Sms.THREAD_ID))
+                        val subscriptionId = cursor.getInt(cursor.getColumnIndexOrThrow(Telephony.Sms.SUBSCRIPTION_ID))
+
+                        // Move to trash vault (soft delete)
+                        moveToTrashUseCase.execute(
+                            messageId = messageId,
+                            sender = sender,
+                            body = body,
+                            timestamp = timestamp,
+                            threadId = threadId,
+                            isMms = false,
+                            subscriptionId = subscriptionId
+                        )
+
+                        // After moving to trash, perform hard delete from SMS provider
+                        context.contentResolver.delete(
+                            Telephony.Sms.CONTENT_URI,
+                            "${Telephony.Sms._ID} = ?",
+                            arrayOf(messageId.toString())
+                        )
+
+                        Toast.makeText(context, "Message moved to trash", Toast.LENGTH_SHORT).show()
+                        return true
+                    } else {
+                        Toast.makeText(context, "Message not found", Toast.LENGTH_SHORT).show()
+                        return false
+                    }
+                }
+
+                return false
+            }
+
+            // Fallback: Hard delete (backward compatible)
             val deleted = context.contentResolver.delete(
                 Telephony.Sms.CONTENT_URI,
                 "${Telephony.Sms.ADDRESS} = ? AND ${Telephony.Sms.DATE} = ?",

@@ -1,6 +1,9 @@
 package com.kite.phalanx.domain.usecase
 
+import android.content.Context
 import com.kite.phalanx.domain.model.*
+import io.mockk.coEvery
+import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.*
 import org.junit.Before
@@ -19,6 +22,10 @@ import org.junit.Test
  * - NON_STANDARD_PORT
  * - PUNYCODE_DOMAIN
  *
+ * Phase 3 Integration:
+ * - Mocks CheckAllowBlockRulesUseCase to return null (no rule match)
+ * - Tests normal risk analysis without allow/block overrides
+ *
  * Also tests:
  * - Score calculation
  * - Verdict level mapping (GREEN/AMBER/RED)
@@ -28,10 +35,24 @@ import org.junit.Test
 class AnalyzeMessageRiskUseCaseTest {
 
     private lateinit var useCase: AnalyzeMessageRiskUseCase
+    private lateinit var mockContext: Context
+    private lateinit var mockCheckAllowBlockRulesUseCase: CheckAllowBlockRulesUseCase
+    private lateinit var mockCheckSenderMismatchUseCase: CheckSenderMismatchUseCase
 
     @Before
     fun setup() {
-        useCase = AnalyzeMessageRiskUseCase()
+        // Mock dependencies
+        mockContext = mockk(relaxed = true)
+        mockCheckAllowBlockRulesUseCase = mockk()
+        mockCheckSenderMismatchUseCase = mockk()
+
+        // Default: no allow/block rules match (return null)
+        coEvery { mockCheckAllowBlockRulesUseCase.execute(any(), any(), any()) } returns null
+
+        // Default: no sender mismatch (return empty list)
+        io.mockk.every { mockCheckSenderMismatchUseCase.invoke(any(), any(), any(), any()) } returns emptyList()
+
+        useCase = AnalyzeMessageRiskUseCase(mockContext, mockCheckAllowBlockRulesUseCase, mockCheckSenderMismatchUseCase)
     }
 
     @Test
@@ -44,7 +65,13 @@ class AnalyzeMessageRiskUseCaseTest {
             hasUserInfo = false
         )
 
-        val verdict = useCase.execute("msg1", listOf(link), listOf(profile))
+        val verdict = useCase.execute(
+            messageId = "msg1",
+            sender = "+1234567890",
+            messageBody = "Test message with link",
+            links = listOf(link),
+            domainProfiles = listOf(profile)
+        )
 
         assertEquals(VerdictLevel.GREEN, verdict.level)
         assertTrue("Safe links should have low scores", verdict.score < 30)
@@ -59,7 +86,13 @@ class AnalyzeMessageRiskUseCaseTest {
             hasUserInfo = true
         )
 
-        val verdict = useCase.execute("msg1", listOf(link), listOf(profile))
+        val verdict = useCase.execute(
+            messageId = "msg1",
+            sender = "+1234567890",
+            messageBody = "Test message with link",
+            links = listOf(link),
+            domainProfiles = listOf(profile)
+        )
 
         assertEquals("CRITICAL signal should trigger RED", VerdictLevel.RED, verdict.level)
         assertTrue("Score should be >= 100", verdict.score >= 100)
@@ -75,7 +108,13 @@ class AnalyzeMessageRiskUseCaseTest {
             isRawIp = true
         )
 
-        val verdict = useCase.execute("msg1", listOf(link), listOf(profile))
+        val verdict = useCase.execute(
+            messageId = "msg1",
+            sender = "+1234567890",
+            messageBody = "Test message with link",
+            links = listOf(link),
+            domainProfiles = listOf(profile)
+        )
 
         assertTrue("IP addresses should increase score", verdict.score >= 40)
         val ipReason = verdict.reasons.find { it.code == SignalCode.RAW_IP_HOST }
@@ -96,7 +135,14 @@ class AnalyzeMessageRiskUseCaseTest {
             )
         )
 
-        val verdict = useCase.execute("msg1", listOf(link), listOf(profile), expandedUrls)
+        val verdict = useCase.execute(
+            messageId = "msg1",
+            sender = "+1234567890",
+            messageBody = "Test message with link",
+            links = listOf(link),
+            domainProfiles = listOf(profile),
+            expandedUrls = expandedUrls
+        )
 
         assertTrue("Shorteners should increase score", verdict.score >= 30)
         val shortenerReason = verdict.reasons.find { it.code == SignalCode.SHORTENER_EXPANDED }
@@ -112,7 +158,13 @@ class AnalyzeMessageRiskUseCaseTest {
             isHomoglyphSuspect = true
         )
 
-        val verdict = useCase.execute("msg1", listOf(link), listOf(profile))
+        val verdict = useCase.execute(
+            messageId = "msg1",
+            sender = "+1234567890",
+            messageBody = "Test message with link",
+            links = listOf(link),
+            domainProfiles = listOf(profile)
+        )
 
         assertTrue("Homoglyphs should increase score", verdict.score >= 35)
         val homoglyphReason = verdict.reasons.find { it.code == SignalCode.HOMOGLYPH_SUSPECT }
@@ -127,7 +179,13 @@ class AnalyzeMessageRiskUseCaseTest {
             scheme = "http"
         )
 
-        val verdict = useCase.execute("msg1", listOf(link), listOf(profile))
+        val verdict = useCase.execute(
+            messageId = "msg1",
+            sender = "+1234567890",
+            messageBody = "Test message with link",
+            links = listOf(link),
+            domainProfiles = listOf(profile)
+        )
 
         assertTrue("HTTP should increase score", verdict.score >= 25)
         val httpReason = verdict.reasons.find { it.code == SignalCode.HTTP_SCHEME }
@@ -143,7 +201,13 @@ class AnalyzeMessageRiskUseCaseTest {
             suspiciousPaths = listOf("login", "verify")
         )
 
-        val verdict = useCase.execute("msg1", listOf(link), listOf(profile))
+        val verdict = useCase.execute(
+            messageId = "msg1",
+            sender = "+1234567890",
+            messageBody = "Test message with link",
+            links = listOf(link),
+            domainProfiles = listOf(profile)
+        )
 
         assertTrue("Suspicious paths should increase score", verdict.score >= 20)
         val pathReason = verdict.reasons.find { it.code == SignalCode.SUSPICIOUS_PATH }
@@ -159,7 +223,13 @@ class AnalyzeMessageRiskUseCaseTest {
             port = 8080
         )
 
-        val verdict = useCase.execute("msg1", listOf(link), listOf(profile))
+        val verdict = useCase.execute(
+            messageId = "msg1",
+            sender = "+1234567890",
+            messageBody = "Test message with link",
+            links = listOf(link),
+            domainProfiles = listOf(profile)
+        )
 
         assertTrue("Non-standard ports should increase score", verdict.score >= 20)
         val portReason = verdict.reasons.find { it.code == SignalCode.NON_STANDARD_PORT }
@@ -175,7 +245,13 @@ class AnalyzeMessageRiskUseCaseTest {
             isPunycode = true
         )
 
-        val verdict = useCase.execute("msg1", listOf(link), listOf(profile))
+        val verdict = useCase.execute(
+            messageId = "msg1",
+            sender = "+1234567890",
+            messageBody = "Test message with link",
+            links = listOf(link),
+            domainProfiles = listOf(profile)
+        )
 
         assertTrue("Punycode should increase score", verdict.score >= 15)
         val punycodeReason = verdict.reasons.find { it.code == SignalCode.PUNYCODE_DOMAIN }
@@ -199,7 +275,13 @@ class AnalyzeMessageRiskUseCaseTest {
             suspiciousPaths = listOf("login")
         )
 
-        val verdict = useCase.execute("msg1", listOf(link), listOf(profile))
+        val verdict = useCase.execute(
+            messageId = "msg1",
+            sender = "+1234567890",
+            messageBody = "Test message with link",
+            links = listOf(link),
+            domainProfiles = listOf(profile)
+        )
 
         // Should have: RAW_IP (40) + HTTP (25) + PORT (20) + PATH (20) = 105
         assertTrue("Multiple signals should accumulate", verdict.score >= 100)
@@ -217,7 +299,13 @@ class AnalyzeMessageRiskUseCaseTest {
             suspiciousPaths = listOf("login")
         )
 
-        val verdict = useCase.execute("msg1", listOf(link), listOf(profile))
+        val verdict = useCase.execute(
+            messageId = "msg1",
+            sender = "+1234567890",
+            messageBody = "Test message with link",
+            links = listOf(link),
+            domainProfiles = listOf(profile)
+        )
 
         assertEquals("Medium score should be AMBER", VerdictLevel.AMBER, verdict.level)
         assertTrue("Score should be 30-69", verdict.score in 30..69)
@@ -243,7 +331,13 @@ class AnalyzeMessageRiskUseCaseTest {
             suspiciousPaths = listOf("verify", "account")
         )
 
-        val verdict = useCase.execute("msg1", listOf(link), listOf(profile))
+        val verdict = useCase.execute(
+            messageId = "msg1",
+            sender = "+1234567890",
+            messageBody = "Test message with link",
+            links = listOf(link),
+            domainProfiles = listOf(profile)
+        )
 
         assertEquals("Obvious phishing should be RED", VerdictLevel.RED, verdict.level)
         assertTrue("Should have very high score", verdict.score >= 100)
@@ -264,7 +358,13 @@ class AnalyzeMessageRiskUseCaseTest {
             scheme = "https"
         )
 
-        val verdict = useCase.execute("msg1", listOf(link), listOf(profile))
+        val verdict = useCase.execute(
+            messageId = "msg1",
+            sender = "+1234567890",
+            messageBody = "Test message with link",
+            links = listOf(link),
+            domainProfiles = listOf(profile)
+        )
 
         assertEquals("Legitimate site should be GREEN", VerdictLevel.GREEN, verdict.level)
         assertTrue("Should have minimal score", verdict.score < 30)
@@ -284,7 +384,13 @@ class AnalyzeMessageRiskUseCaseTest {
             suspiciousPaths = listOf("login") // Even with /login, HTTPS domain makes it safer
         )
 
-        val verdict = useCase.execute("msg1", listOf(link), listOf(profile))
+        val verdict = useCase.execute(
+            messageId = "msg1",
+            sender = "+1234567890",
+            messageBody = "Test message with link",
+            links = listOf(link),
+            domainProfiles = listOf(profile)
+        )
 
         // Should be AMBER due to /login path, but not RED because it's legitimate HTTPS domain
         assertTrue("Should be GREEN or AMBER", verdict.level in listOf(VerdictLevel.GREEN, VerdictLevel.AMBER))
@@ -305,7 +411,14 @@ class AnalyzeMessageRiskUseCaseTest {
             )
         )
 
-        val verdict = useCase.execute("msg1", listOf(link), listOf(profile), expandedUrls)
+        val verdict = useCase.execute(
+            messageId = "msg1",
+            sender = "+1234567890",
+            messageBody = "Test message with link",
+            links = listOf(link),
+            domainProfiles = listOf(profile),
+            expandedUrls = expandedUrls
+        )
 
         assertTrue("Shorteners should be flagged even if destination is safe", verdict.level in listOf(VerdictLevel.AMBER, VerdictLevel.GREEN))
         assertTrue("Should have shortener signal", verdict.reasons.any { it.code == SignalCode.SHORTENER_EXPANDED })
@@ -313,7 +426,13 @@ class AnalyzeMessageRiskUseCaseTest {
 
     @Test
     fun `no links returns GREEN verdict`() = runTest {
-        val verdict = useCase.execute("msg1", emptyList(), emptyList())
+        val verdict = useCase.execute(
+            messageId = "msg1",
+            sender = "+1234567890",
+            messageBody = "Safe message with no links",
+            links = emptyList(),
+            domainProfiles = emptyList()
+        )
 
         assertEquals("No links should be GREEN", VerdictLevel.GREEN, verdict.level)
         assertEquals("No links should have zero score", 0, verdict.score)
@@ -331,7 +450,13 @@ class AnalyzeMessageRiskUseCaseTest {
             suspiciousPaths = listOf("login")
         )
 
-        val verdict = useCase.execute("msg1", listOf(link), listOf(profile))
+        val verdict = useCase.execute(
+            messageId = "msg1",
+            sender = "+1234567890",
+            messageBody = "Test message with link",
+            links = listOf(link),
+            domainProfiles = listOf(profile)
+        )
 
         // Top reason should be highest weight (RAW_IP = 40)
         assertEquals("Top reason should be IP", SignalCode.RAW_IP_HOST, verdict.reasons[0].code)
@@ -356,7 +481,13 @@ class AnalyzeMessageRiskUseCaseTest {
             suspiciousPaths = listOf("login", "verify")
         )
 
-        val verdict = useCase.execute("msg1", listOf(link), listOf(profile))
+        val verdict = useCase.execute(
+            messageId = "msg1",
+            sender = "+1234567890",
+            messageBody = "Test message with link",
+            links = listOf(link),
+            domainProfiles = listOf(profile)
+        )
 
         assertTrue("Should have at most 3 reasons", verdict.reasons.size <= 3)
     }

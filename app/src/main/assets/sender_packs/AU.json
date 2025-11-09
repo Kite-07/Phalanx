@@ -1,0 +1,244 @@
+{
+  "version": 20250109001,
+  "entries": [
+    {
+      "pattern": "^TELSTRA$",
+      "brand": "Telstra",
+      "type": "CARRIER",
+      "keywords": [
+        "telstra"
+      ]
+    },
+    {
+      "pattern": "^OPTUS$",
+      "brand": "Optus",
+      "type": "CARRIER",
+      "keywords": [
+        "optus"
+      ]
+    },
+    {
+      "pattern": "^VODAFONE$",
+      "brand": "Vodafone",
+      "type": "CARRIER",
+      "keywords": [
+        "vodafone"
+      ]
+    },
+    {
+      "pattern": "^(TPG|TPGTelecom)$",
+      "brand": "TPG Telecom",
+      "type": "CARRIER",
+      "keywords": [
+        "tpg",
+        "tpg telecom"
+      ]
+    },
+    {
+      "pattern": "^(CBA|CommBank)$",
+      "brand": "Commonwealth Bank",
+      "type": "BANK",
+      "keywords": [
+        "commonwealth bank",
+        "commbank",
+        "cba"
+      ]
+    },
+    {
+      "pattern": "^(WESTPAC|WestpacBank)$",
+      "brand": "Westpac",
+      "type": "BANK",
+      "keywords": [
+        "westpac",
+        "westpac bank"
+      ]
+    },
+    {
+      "pattern": "^(ANZ|ANZBank)$",
+      "brand": "ANZ",
+      "type": "BANK",
+      "keywords": [
+        "anz",
+        "anz bank"
+      ]
+    },
+    {
+      "pattern": "^(NAB|NationalAus)$",
+      "brand": "NAB",
+      "type": "BANK",
+      "keywords": [
+        "nab",
+        "national australia bank"
+      ]
+    },
+    {
+      "pattern": "^(MACQUARIE|MacqBank)$",
+      "brand": "Macquarie Bank",
+      "type": "BANK",
+      "keywords": [
+        "macquarie",
+        "macquarie bank"
+      ]
+    },
+    {
+      "pattern": "^(ING|INGDirect)$",
+      "brand": "ING",
+      "type": "BANK",
+      "keywords": [
+        "ing",
+        "ing direct"
+      ]
+    },
+    {
+      "pattern": "^(ATO|AustTO)$",
+      "brand": "Australian Taxation Office",
+      "type": "GOVERNMENT",
+      "keywords": [
+        "ato",
+        "australian taxation office",
+        "tax office"
+      ]
+    },
+    {
+      "pattern": "^(CENTRELINK|Centrelink)$",
+      "brand": "Centrelink",
+      "type": "GOVERNMENT",
+      "keywords": [
+        "centrelink",
+        "services australia"
+      ]
+    },
+    {
+      "pattern": "^(AUSPOST|AustPost)$",
+      "brand": "Australia Post",
+      "type": "SERVICE",
+      "keywords": [
+        "australia post",
+        "auspost"
+      ]
+    },
+    {
+      "pattern": "^(MEDICARE|MedicareAU)$",
+      "brand": "Medicare",
+      "type": "GOVERNMENT",
+      "keywords": [
+        "medicare"
+      ]
+    },
+    {
+      "pattern": "^PAYPAL$",
+      "brand": "PayPal",
+      "type": "PAYMENT",
+      "keywords": [
+        "paypal"
+      ]
+    },
+    {
+      "pattern": "^(AFTERPAY|Afterpay)$",
+      "brand": "Afterpay",
+      "type": "PAYMENT",
+      "keywords": [
+        "afterpay",
+        "after pay"
+      ]
+    },
+    {
+      "pattern": "^(ZIP|ZipPay)$",
+      "brand": "Zip",
+      "type": "PAYMENT",
+      "keywords": [
+        "zip",
+        "zip pay",
+        "zip money"
+      ]
+    },
+    {
+      "pattern": "^AMAZON$",
+      "brand": "Amazon",
+      "type": "ECOMMERCE",
+      "keywords": [
+        "amazon"
+      ]
+    },
+    {
+      "pattern": "^(WOOLWORTHS|Woolies)$",
+      "brand": "Woolworths",
+      "type": "ECOMMERCE",
+      "keywords": [
+        "woolworths",
+        "woolies"
+      ]
+    },
+    {
+      "pattern": "^COLES$",
+      "brand": "Coles",
+      "type": "ECOMMERCE",
+      "keywords": [
+        "coles"
+      ]
+    },
+    {
+      "pattern": "^(JB-HIFI|JBHiFi)$",
+      "brand": "JB Hi-Fi",
+      "type": "ECOMMERCE",
+      "keywords": [
+        "jb hi-fi",
+        "jb hifi",
+        "jbhifi"
+      ]
+    },
+    {
+      "pattern": "^(KMART|KmartAU)$",
+      "brand": "Kmart",
+      "type": "ECOMMERCE",
+      "keywords": [
+        "kmart"
+      ]
+    },
+    {
+      "pattern": "^(TARGET|TargetAU)$",
+      "brand": "Target",
+      "type": "ECOMMERCE",
+      "keywords": [
+        "target"
+      ]
+    },
+    {
+      "pattern": "^(UBER|UberEats)$",
+      "brand": "Uber",
+      "type": "SERVICE",
+      "keywords": [
+        "uber",
+        "uber eats"
+      ]
+    },
+    {
+      "pattern": "^(MENULOG|Menulog)$",
+      "brand": "Menulog",
+      "type": "SERVICE",
+      "keywords": [
+        "menulog"
+      ]
+    },
+    {
+      "pattern": "^(DELIVEROO|Deliveroo)$",
+      "brand": "Deliveroo",
+      "type": "SERVICE",
+      "keywords": [
+        "deliveroo"
+      ]
+    },
+    {
+      "pattern": "^(QANTAS|QantasAir)$",
+      "brand": "Qantas",
+      "type": "SERVICE",
+      "keywords": [
+        "qantas",
+        "qantas airways"
+      ]
+    }
+  ],
+  "signature": "e92a5d3f25d2ba6ef6c71202b7dae5b1cf3a7f037580bbe3b11b6f6d53bc8ca6841d088fcfe701507d0aaf8ac1ed38784b46f74bd1e9c5d6325e8f86e5a9b009",
+  "timestamp": 1736410800000,
+  "region": "AU"
+}

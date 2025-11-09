@@ -1,0 +1,240 @@
+{
+  "version": 20250109001,
+  "entries": [
+    {
+      "pattern": "^(ROGERS|RogersCA)$",
+      "brand": "Rogers",
+      "type": "CARRIER",
+      "keywords": [
+        "rogers",
+        "rogers wireless"
+      ]
+    },
+    {
+      "pattern": "^(BELL|BellCA)$",
+      "brand": "Bell",
+      "type": "CARRIER",
+      "keywords": [
+        "bell",
+        "bell mobility",
+        "bell canada"
+      ]
+    },
+    {
+      "pattern": "^(TELUS|TelusCA)$",
+      "brand": "Telus",
+      "type": "CARRIER",
+      "keywords": [
+        "telus",
+        "telus mobility"
+      ]
+    },
+    {
+      "pattern": "^(FIDO|FidoCA)$",
+      "brand": "Fido",
+      "type": "CARRIER",
+      "keywords": [
+        "fido"
+      ]
+    },
+    {
+      "pattern": "^(KOODO|KoodoCA)$",
+      "brand": "Koodo",
+      "type": "CARRIER",
+      "keywords": [
+        "koodo"
+      ]
+    },
+    {
+      "pattern": "^(RBC|RBCBank)$",
+      "brand": "RBC",
+      "type": "BANK",
+      "keywords": [
+        "rbc",
+        "royal bank of canada",
+        "royal bank"
+      ]
+    },
+    {
+      "pattern": "^(TD|TDBank)$",
+      "brand": "TD",
+      "type": "BANK",
+      "keywords": [
+        "td",
+        "td bank",
+        "toronto dominion"
+      ]
+    },
+    {
+      "pattern": "^(SCOTIA|ScotiaBank)$",
+      "brand": "Scotiabank",
+      "type": "BANK",
+      "keywords": [
+        "scotiabank",
+        "scotia",
+        "bank of nova scotia"
+      ]
+    },
+    {
+      "pattern": "^(BMO|BMOBank)$",
+      "brand": "BMO",
+      "type": "BANK",
+      "keywords": [
+        "bmo",
+        "bank of montreal"
+      ]
+    },
+    {
+      "pattern": "^(CIBC|CIBCBank)$",
+      "brand": "CIBC",
+      "type": "BANK",
+      "keywords": [
+        "cibc",
+        "canadian imperial bank"
+      ]
+    },
+    {
+      "pattern": "^(TANGERINE|Tangerine)$",
+      "brand": "Tangerine",
+      "type": "BANK",
+      "keywords": [
+        "tangerine",
+        "tangerine bank"
+      ]
+    },
+    {
+      "pattern": "^(CRA|CRA-ARC)$",
+      "brand": "Canada Revenue Agency",
+      "type": "GOVERNMENT",
+      "keywords": [
+        "cra",
+        "canada revenue agency",
+        "revenue canada"
+      ]
+    },
+    {
+      "pattern": "^(SERVICECAN|ServiceCA)$",
+      "brand": "Service Canada",
+      "type": "GOVERNMENT",
+      "keywords": [
+        "service canada"
+      ]
+    },
+    {
+      "pattern": "^(CANADAPOST|CanPost)$",
+      "brand": "Canada Post",
+      "type": "SERVICE",
+      "keywords": [
+        "canada post",
+        "canadapost",
+        "postes canada"
+      ]
+    },
+    {
+      "pattern": "^PAYPAL$",
+      "brand": "PayPal",
+      "type": "PAYMENT",
+      "keywords": [
+        "paypal"
+      ]
+    },
+    {
+      "pattern": "^(INTERAC|InteracCA)$",
+      "brand": "Interac",
+      "type": "PAYMENT",
+      "keywords": [
+        "interac",
+        "interac e-transfer"
+      ]
+    },
+    {
+      "pattern": "^AMAZON$",
+      "brand": "Amazon",
+      "type": "ECOMMERCE",
+      "keywords": [
+        "amazon"
+      ]
+    },
+    {
+      "pattern": "^(WALMART|WalmartCA)$",
+      "brand": "Walmart",
+      "type": "ECOMMERCE",
+      "keywords": [
+        "walmart"
+      ]
+    },
+    {
+      "pattern": "^(SHOPPERS|ShoppersDM)$",
+      "brand": "Shoppers Drug Mart",
+      "type": "ECOMMERCE",
+      "keywords": [
+        "shoppers",
+        "shoppers drug mart"
+      ]
+    },
+    {
+      "pattern": "^(CANADIANTRE|CanTire)$",
+      "brand": "Canadian Tire",
+      "type": "ECOMMERCE",
+      "keywords": [
+        "canadian tire"
+      ]
+    },
+    {
+      "pattern": "^(BESTBUY|BestBuyCA)$",
+      "brand": "Best Buy",
+      "type": "ECOMMERCE",
+      "keywords": [
+        "best buy",
+        "bestbuy"
+      ]
+    },
+    {
+      "pattern": "^(UBER|UberEats)$",
+      "brand": "Uber",
+      "type": "SERVICE",
+      "keywords": [
+        "uber",
+        "uber eats"
+      ]
+    },
+    {
+      "pattern": "^(SKIPTHEDISH|SkipTD)$",
+      "brand": "Skip The Dishes",
+      "type": "SERVICE",
+      "keywords": [
+        "skip the dishes",
+        "skipthedishes"
+      ]
+    },
+    {
+      "pattern": "^(DOORDASH|DoorDash)$",
+      "brand": "DoorDash",
+      "type": "SERVICE",
+      "keywords": [
+        "doordash",
+        "door dash"
+      ]
+    },
+    {
+      "pattern": "^(AIRCANADA|AirCanada)$",
+      "brand": "Air Canada",
+      "type": "SERVICE",
+      "keywords": [
+        "air canada",
+        "aircanada"
+      ]
+    },
+    {
+      "pattern": "^(WESTJET|WestJet)$",
+      "brand": "WestJet",
+      "type": "SERVICE",
+      "keywords": [
+        "westjet"
+      ]
+    }
+  ],
+  "signature": "a01f35de170ef6c381ed458171689265568e134a3c6f6a4b118aac24d31bb0c2449f3a759ca34d647577366d4acf0907ec67a5a403a7b2e467d5d39417e00c04",
+  "timestamp": 1736410800000,
+  "region": "CA"
+}

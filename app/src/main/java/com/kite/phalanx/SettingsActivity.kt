@@ -372,6 +372,41 @@ class SettingsActivity : ComponentActivity() {
                         item {
                             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                         }
+
+                        // Phase 3: Safety Rails Section
+                        item {
+                            SettingsSectionHeader(title = "Safety Rails")
+                        }
+
+                        item {
+                            SettingsDescription(
+                                text = "Advanced security features to protect against phishing and malicious messages."
+                            )
+                        }
+
+                        item {
+                            SettingsClickableItem(
+                                title = "Security Settings",
+                                subtitle = "Adjust threat detection sensitivity and security preferences",
+                                onClick = {
+                                    startActivity(Intent(this@SettingsActivity, com.kite.phalanx.ui.SecuritySettingsActivity::class.java))
+                                }
+                            )
+                        }
+
+                        item {
+                            SettingsClickableItem(
+                                title = "Allow/Block Lists",
+                                subtitle = "Manage trusted domains and blocked senders",
+                                onClick = {
+                                    startActivity(Intent(this@SettingsActivity, com.kite.phalanx.ui.AllowBlockListActivity::class.java))
+                                }
+                            )
+                        }
+
+                        item {
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                        }
                     }
                 }
             }

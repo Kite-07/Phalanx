@@ -55,6 +55,7 @@ import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Archive
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
@@ -110,12 +111,20 @@ import com.kite.phalanx.ui.SecurityExplanationSheet
 import com.kite.phalanx.domain.model.VerdictLevel
 import dagger.hilt.android.AndroidEntryPoint
 import androidx.activity.viewModels
+import com.kite.phalanx.domain.usecase.MoveToTrashUseCase
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import javax.inject.Inject
 
 @AndroidEntryPoint
 class SmsDetailActivity : ComponentActivity() {
+
+    @Inject
+    lateinit var moveToTrashUseCase: MoveToTrashUseCase
+
+    @Inject
+    lateinit var allowBlockListRepository: com.kite.phalanx.domain.repository.AllowBlockListRepository
 
     private val viewModel: SmsDetailViewModel by viewModels()
 
@@ -153,6 +162,13 @@ class SmsDetailActivity : ComponentActivity() {
 
                 // Collect verdict cache from ViewModel
                 val verdictCache by viewModel.verdictCache.collectAsState()
+
+                // Build registered domain cache for displaying in SecurityChip
+                val registeredDomainCache = remember(verdictCache) {
+                    verdictCache.keys.associateWith { messageId ->
+                        viewModel.getRegisteredDomain(messageId) ?: ""
+                    }
+                }
 
                 // State for security explanation sheet
                 var showSecuritySheet by remember { mutableStateOf(false) }
@@ -512,29 +528,35 @@ class SmsDetailActivity : ComponentActivity() {
                         )
                     },
                     bottomBar = {
-                        var showSimSelector by remember { mutableStateOf(false) }
-                        val activeSims by remember { mutableStateOf(SimHelper.getActiveSims(this@SmsDetailActivity)) }
-                        val hasMultipleSims = activeSims.size > 1
-                        var currentSimId by remember { mutableStateOf(-1) }
+                        val canReply = remember(sender) { canSenderReceiveReplies(sender) }
 
-                        // Load current SIM for conversation when dialog is shown
-                        LaunchedEffect(showSimSelector) {
-                            if (showSimSelector) {
-                                currentSimId = SimPreferences.getSimForConversation(this@SmsDetailActivity, sender)
-                            }
-                        }
+                        if (!canReply) {
+                            // Show non-reply message for senders that can't receive replies
+                            NonReplyBottomBar(textSizeScale = textSizeScale)
+                        } else {
+                            var showSimSelector by remember { mutableStateOf(false) }
+                            val activeSims by remember { mutableStateOf(SimHelper.getActiveSims(this@SmsDetailActivity)) }
+                            val hasMultipleSims = activeSims.size > 1
+                            var currentSimId by remember { mutableStateOf(-1) }
 
-                        Column {
-                            // Reply preview above composer
-                            replyingToMessage?.let { replyMsg ->
-                                ReplyPreview(
-                                    message = replyMsg,
-                                    textSizeScale = textSizeScale,
-                                    onDismiss = { replyingToMessage = null }
-                                )
+                            // Load current SIM for conversation when dialog is shown
+                            LaunchedEffect(showSimSelector) {
+                                if (showSimSelector) {
+                                    currentSimId = SimPreferences.getSimForConversation(this@SmsDetailActivity, sender)
+                                }
                             }
 
-                            MessageComposer(
+                            Column {
+                                // Reply preview above composer
+                                replyingToMessage?.let { replyMsg ->
+                                    ReplyPreview(
+                                        message = replyMsg,
+                                        textSizeScale = textSizeScale,
+                                        onDismiss = { replyingToMessage = null }
+                                    )
+                                }
+
+                                MessageComposer(
                             message = messageText,
                             textSizeScale = textSizeScale,
                             onMessageChange = { newText ->
@@ -671,6 +693,7 @@ class SmsDetailActivity : ComponentActivity() {
                             )
                         }
                         }
+                        }
                     }
                 ) { innerPadding ->
                     val messageUiModels = remember(messages) { buildMessageUiModels(messages) }
@@ -720,6 +743,7 @@ class SmsDetailActivity : ComponentActivity() {
                                 scrollToIndex = scrollToIndex,
                                 textSizeScale = textSizeScale,
                                 verdictCache = verdictCache,
+                                registeredDomainCache = registeredDomainCache,
                                 onSecurityChipClick = { message ->
                                     selectedMessageForSecurity = message
                                     showSecuritySheet = true
@@ -750,7 +774,8 @@ class SmsDetailActivity : ComponentActivity() {
                                         SmsOperations.deleteMessage(
                                             context = this@SmsDetailActivity,
                                             sender = failedMessage.sender,
-                                            timestamp = failedMessage.timestamp
+                                            timestamp = failedMessage.timestamp,
+                                            moveToTrashUseCase = moveToTrashUseCase
                                         )
 
                                         // Resend the message
@@ -818,20 +843,20 @@ class SmsDetailActivity : ComponentActivity() {
                     AlertDialog(
                         onDismissRequest = { showDeleteConfirmDialog = false },
                         title = { Text("Delete Conversation?") },
-                        text = { Text("Are you sure you want to delete this conversation? This action cannot be undone.") },
+                        text = { Text("Delete this conversation? It will be moved to Trash Vault for 30 days.") },
                         confirmButton = {
                             TextButton(onClick = {
                                 showDeleteConfirmDialog = false
-                                if (SmsOperations.deleteThread(this@SmsDetailActivity, sender)) {
-                                    // Also delete the draft
-                                    scope.launch {
+                                scope.launch {
+                                    if (SmsOperations.deleteThread(this@SmsDetailActivity, sender, moveToTrashUseCase)) {
+                                        // Also delete the draft
                                         try {
                                             DraftsManager.deleteDraft(this@SmsDetailActivity, sender)
                                         } catch (e: Exception) {
                                             // Silently handle error
                                         }
+                                        finish()
                                     }
-                                    finish()
                                 }
                             }) {
                                 Text("Delete")
@@ -853,15 +878,22 @@ class SmsDetailActivity : ComponentActivity() {
                         confirmButton = {
                             TextButton(onClick = {
                                 showDeleteSelectedConfirmDialog = false
-                                var deletedCount = 0
-                                selectedMessages.forEach { timestamp ->
-                                    if (SmsOperations.deleteMessage(this@SmsDetailActivity, sender, timestamp)) {
-                                        deletedCount++
+                                scope.launch {
+                                    var deletedCount = 0
+                                    selectedMessages.forEach { timestamp ->
+                                        if (SmsOperations.deleteMessage(
+                                            context = this@SmsDetailActivity,
+                                            sender = sender,
+                                            timestamp = timestamp,
+                                            moveToTrashUseCase = moveToTrashUseCase
+                                        )) {
+                                            deletedCount++
+                                        }
                                     }
-                                }
-                                if (deletedCount > 0) {
-                                    selectedMessages = emptySet()
-                                    refreshTrigger++
+                                    if (deletedCount > 0) {
+                                        selectedMessages = emptySet()
+                                        refreshTrigger++
+                                    }
                                 }
                             }) {
                                 Text("Delete")
@@ -1006,49 +1038,79 @@ class SmsDetailActivity : ComponentActivity() {
                 if (showSecuritySheet && selectedMessageForSecurity != null) {
                     val verdict = verdictCache[selectedMessageForSecurity!!.timestamp]
                     if (verdict != null) {
-                        // Extract registered domain from cached domain profiles
+                        // Extract registered domain and final URL from caches
                         val registeredDomain = viewModel.getRegisteredDomain(selectedMessageForSecurity!!.timestamp) ?: ""
+                        val finalUrl = viewModel.getFinalUrl(selectedMessageForSecurity!!.timestamp)
 
                         SecurityExplanationSheet(
                             verdict = verdict,
                             registeredDomain = registeredDomain,
-                            finalUrl = null, // TODO: Get from expanded URLs
+                            finalUrl = finalUrl,
+                            senderInfo = sender,
                             onDismiss = {
                                 showSecuritySheet = false
                                 selectedMessageForSecurity = null
                             },
-                            onOpenSafely = {
-                                // TODO: Open URL in external browser
-                            },
-                            onCopyUrl = {
-                                // TODO: Copy URL to clipboard
-                            },
-                            onWhitelist = if (verdict.level != VerdictLevel.RED) {
+                            onOpenSafely = null, // Not in scope for this app
+                            onCopyUrl = if (finalUrl != null) {
                                 {
-                                    // Trust the domain
+                                    // Copy final URL to clipboard
+                                    val clipboard = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                    val clip = android.content.ClipData.newPlainText("URL", finalUrl)
+                                    clipboard.setPrimaryClip(clip)
+                                    android.widget.Toast.makeText(
+                                        this@SmsDetailActivity,
+                                        "URL copied to clipboard",
+                                        android.widget.Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            } else null,
+                            onWhitelist = if (registeredDomain.isNotBlank()) {
+                                {
+                                    // Trust the domain by adding to Allow List
                                     scope.launch {
-                                        if (registeredDomain.isNotBlank()) {
-                                            // Add to whitelist
-                                            TrustedDomainsPreferences.trustDomain(this@SmsDetailActivity, registeredDomain)
+                                        // Add ALLOW rule for this domain (Phase 3 - Allow/Block List)
+                                        allowBlockListRepository.addRule(
+                                            type = com.kite.phalanx.data.source.local.entity.RuleType.DOMAIN,
+                                            value = registeredDomain,
+                                            action = com.kite.phalanx.data.source.local.entity.RuleAction.ALLOW,
+                                            priority = 80, // High priority for user-trusted domains
+                                            notes = "Trusted by user via Security Sheet"
+                                        )
 
-                                            // Re-analyze all messages with this domain and update verdicts to GREEN
-                                            viewModel.trustDomainAndReanalyze(registeredDomain)
+                                        // Re-analyze all messages with this domain (will now force GREEN due to ALLOW rule)
+                                        viewModel.trustDomainAndReanalyze(registeredDomain)
 
-                                            android.widget.Toast.makeText(
-                                                this@SmsDetailActivity,
-                                                "Domain added to whitelist",
-                                                android.widget.Toast.LENGTH_SHORT
-                                            ).show()
-                                        } else {
-                                            android.widget.Toast.makeText(
-                                                this@SmsDetailActivity,
-                                                "Unable to extract domain from this message",
-                                                android.widget.Toast.LENGTH_SHORT
-                                            ).show()
-                                        }
+                                        android.widget.Toast.makeText(
+                                            this@SmsDetailActivity,
+                                            "Domain added to allow list",
+                                            android.widget.Toast.LENGTH_SHORT
+                                        ).show()
                                     }
                                 }
-                            } else null
+                            } else null,
+                            onBlockSender = {
+                                // Block the sender's number
+                                SmsOperations.blockNumber(this@SmsDetailActivity, sender)
+                                // Note: Sheet dismissal is handled by button's onClick in SecurityComponents
+                            },
+                            onDeleteMessage = {
+                                // Delete this specific message (suspend function - use coroutine)
+                                scope.launch {
+                                    val deleted = SmsOperations.deleteMessage(
+                                        context = this@SmsDetailActivity,
+                                        sender = selectedMessageForSecurity!!.sender,
+                                        timestamp = selectedMessageForSecurity!!.timestamp,
+                                        moveToTrashUseCase = moveToTrashUseCase
+                                    )
+                                    if (deleted) {
+                                        // Refresh message list
+                                        messages = readSmsMessages(sender)
+                                        refreshTrigger++
+                                    }
+                                }
+                                // Note: Sheet dismissal is handled by button's onClick in SecurityComponents
+                            }
                         )
                     }
                 }
@@ -1181,6 +1243,30 @@ class SmsDetailActivity : ComponentActivity() {
             }
         }
     }
+
+    /**
+     * Determines if a sender can receive replies.
+     * Short codes (5-6 digits) and alphanumeric sender IDs typically cannot receive replies.
+     */
+    private fun canSenderReceiveReplies(sender: String): Boolean {
+        // Remove all non-alphanumeric characters for analysis
+        val cleanSender = sender.replace(Regex("[^A-Za-z0-9]"), "")
+
+        // Check if it's a short code (5-6 digits only)
+        if (cleanSender.matches(Regex("^\\d{5,6}$"))) {
+            return false
+        }
+
+        // Check if it's alphanumeric (contains both letters and numbers, or only letters)
+        // These are typically service sender IDs that can't receive replies
+        if (cleanSender.matches(Regex("^[A-Za-z]+$")) ||
+            cleanSender.matches(Regex("^[A-Za-z0-9]+$")) && cleanSender.any { it.isLetter() }) {
+            return false
+        }
+
+        // If it's a normal phone number (10+ digits), it can receive replies
+        return cleanSender.matches(Regex("^\\d{10,}$"))
+    }
 }
 
 @Composable
@@ -1258,6 +1344,7 @@ internal fun SmsDetailScreen(
     scrollToIndex: Int,
     textSizeScale: Float,
     verdictCache: Map<Long, com.kite.phalanx.domain.model.Verdict> = emptyMap(),
+    registeredDomainCache: Map<Long, String> = emptyMap(),
     onSecurityChipClick: ((SmsMessage) -> Unit)? = null,
     onMessageLongClick: (SmsMessage) -> Unit,
     onMessageClick: (SmsMessage) -> Unit,
@@ -1328,6 +1415,7 @@ internal fun SmsDetailScreen(
                         isSelected = selectedMessages.contains(uiModel.message.timestamp),
                         textSizeScale = textSizeScale,
                         verdict = verdictCache[uiModel.message.timestamp],
+                        registeredDomain = registeredDomainCache[uiModel.message.timestamp] ?: "",
                         onSecurityChipClick = onSecurityChipClick,
                         onLongClick = { onMessageLongClick(uiModel.message) },
                         onClick = { onMessageClick(uiModel.message) },
@@ -1347,6 +1435,7 @@ fun MessageBubble(
     isSelected: Boolean,
     textSizeScale: Float,
     verdict: com.kite.phalanx.domain.model.Verdict? = null,
+    registeredDomain: String = "",
     onSecurityChipClick: ((SmsMessage) -> Unit)? = null,
     onLongClick: () -> Unit,
     onClick: () -> Unit,
@@ -1567,7 +1656,7 @@ fun MessageBubble(
         if (!message.isSentByUser && verdict != null && verdict.level != VerdictLevel.GREEN) {
             SecurityChip(
                 verdict = verdict,
-                registeredDomain = "", // TODO: Extract from link analysis
+                registeredDomain = registeredDomain,
                 onClick = { onSecurityChipClick?.invoke(message) },
                 modifier = Modifier.padding(top = 8.dp)
             )
@@ -1669,6 +1758,40 @@ internal fun buildMessageUiModels(messages: List<SmsMessage>): List<MessageUiMod
 }
 
 private fun minuteBucket(timestamp: Long): Long = timestamp / 60_000L
+
+/**
+ * Bottom bar shown when sender cannot receive replies (short codes, alphanumeric sender IDs).
+ */
+@Composable
+fun NonReplyBottomBar(textSizeScale: Float, modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        tonalElevation = 3.dp,
+        color = MaterialTheme.colorScheme.surfaceVariant
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.Info,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(
+                text = "You can't reply to this sender",
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontSize = MaterialTheme.typography.bodyMedium.fontSize * textSizeScale
+                ),
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable

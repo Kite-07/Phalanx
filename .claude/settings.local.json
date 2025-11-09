@@ -23,7 +23,11 @@
       "Bash(./gradlew.bat clean testDebugUnitTest:*)",
       "Bash(.gradlew.bat assembleDebug)",
       "Bash(del \"C:\\Users\\Kite\\AndroidStudioProjects\\Phalanx\\app\\src\\main\\java\\com\\kite\\phalanx\\data\\repository\\PhishTankRepository.kt\")",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(nul)",
+      "Bash(findstr:*)",
+      "Bash(python:*)",
+      "Bash(pip install:*)"
     ],
     "deny": [],
     "ask": []

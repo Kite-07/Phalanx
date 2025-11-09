@@ -1,12 +1,15 @@
 package com.kite.phalanx.domain
 
+import android.content.Context
 import com.kite.phalanx.data.util.PublicSuffixListParser
 import com.kite.phalanx.domain.model.*
 import com.kite.phalanx.domain.usecase.AnalyzeMessageRiskUseCase
+import com.kite.phalanx.domain.usecase.CheckAllowBlockRulesUseCase
 import com.kite.phalanx.domain.usecase.ExtractLinksUseCase
 import com.kite.phalanx.domain.usecase.ProfileDomainUseCase
 import com.kite.phalanx.domain.util.BrandDatabase
 import com.kite.phalanx.domain.util.TldRiskScorer
+import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
@@ -18,6 +21,8 @@ import org.junit.Test
  * Integration test for Stage 1B brand impersonation detection.
  *
  * Tests the complete pipeline: Extract Links → Profile Domain → Analyze Risk
+ *
+ * Phase 3 Integration: Mocks CheckAllowBlockRulesUseCase to return null (no rules).
  */
 class Stage1BIntegrationTest {
 
@@ -34,7 +39,17 @@ class Stage1BIntegrationTest {
         extractLinksUseCase = ExtractLinksUseCase()
         brandDatabase = BrandDatabase()
         tldRiskScorer = TldRiskScorer()
-        analyzeRiskUseCase = AnalyzeMessageRiskUseCase()
+
+        // Mock dependencies
+        val mockContext = mockk<Context>(relaxed = true)
+        val mockCheckAllowBlockRulesUseCase = mockk<CheckAllowBlockRulesUseCase>()
+        coEvery { mockCheckAllowBlockRulesUseCase.execute(any(), any(), any()) } returns null
+
+        // Mock CheckSenderMismatchUseCase to return empty list (no sender mismatch)
+        val mockCheckSenderMismatchUseCase = mockk<com.kite.phalanx.domain.usecase.CheckSenderMismatchUseCase>()
+        every { mockCheckSenderMismatchUseCase.invoke(any(), any(), any(), any()) } returns emptyList()
+
+        analyzeRiskUseCase = AnalyzeMessageRiskUseCase(mockContext, mockCheckAllowBlockRulesUseCase, mockCheckSenderMismatchUseCase)
 
         // Mock PSL parser
         pslParser = mockk()
@@ -75,6 +90,8 @@ class Stage1BIntegrationTest {
         // Step 3: Analyze risk
         val verdict = analyzeRiskUseCase.execute(
             messageId = "test-msg-1",
+            sender = "+1234567890",
+            messageBody = messageText,
             links = links,
             domainProfiles = listOf(profile),
             expandedUrls = emptyMap()
@@ -106,6 +123,8 @@ class Stage1BIntegrationTest {
         val profile = profileDomainUseCase.execute(links[0])
         val verdict = analyzeRiskUseCase.execute(
             messageId = "test-msg-2",
+            sender = "+1234567890",
+            messageBody = messageText,
             links = links,
             domainProfiles = listOf(profile)
         )
@@ -147,6 +166,8 @@ class Stage1BIntegrationTest {
         val profile = profileDomainUseCase.execute(links[0])
         val verdict = analyzeRiskUseCase.execute(
             messageId = "test-msg-3",
+            sender = "+1234567890",
+            messageBody = messageText,
             links = links,
             domainProfiles = listOf(profile)
         )

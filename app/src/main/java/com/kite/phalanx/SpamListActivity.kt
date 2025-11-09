@@ -188,9 +188,9 @@ class SpamListActivity : ComponentActivity() {
                         text = {
                             Text(
                                 if (selectedThreads.size == 1) {
-                                    "Are you sure you want to delete this conversation? This action cannot be undone."
+                                    "Are you sure you want to permanently delete this conversation? This action cannot be undone."
                                 } else {
-                                    "Are you sure you want to delete ${selectedThreads.size} conversations? This action cannot be undone."
+                                    "Are you sure you want to permanently delete ${selectedThreads.size} conversations? This action cannot be undone."
                                 }
                             )
                         },
@@ -199,7 +199,8 @@ class SpamListActivity : ComponentActivity() {
                                 showDeleteConfirmDialog = false
                                 coroutineScope.launch {
                                     selectedThreads.forEach { sender ->
-                                        SmsOperations.deleteThread(this@SpamListActivity, sender)
+                                        // Permanently delete spam messages (don't use trash vault)
+                                        SmsOperations.deleteThread(this@SpamListActivity, sender, moveToTrashUseCase = null)
                                     }
                                     selectedThreads = emptySet()
                                     refreshSpamList()

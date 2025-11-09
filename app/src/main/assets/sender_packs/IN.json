@@ -1,0 +1,269 @@
+{
+  "version": 20250109002,
+  "entries": [
+    {
+      "pattern": "^(AX-)?AIRTEL$",
+      "brand": "Airtel",
+      "type": "CARRIER",
+      "keywords": [
+        "airtel",
+        "bharti airtel"
+      ]
+    },
+    {
+      "pattern": "^(VM-)?VODAID$",
+      "brand": "Vodafone Idea",
+      "type": "CARRIER",
+      "keywords": [
+        "vodafone",
+        "vodafone idea",
+        "idea cellular"
+      ]
+    },
+    {
+      "pattern": "^JIONET$",
+      "brand": "Jio",
+      "type": "CARRIER",
+      "keywords": [
+        "jio",
+        "reliance jio"
+      ]
+    },
+    {
+      "pattern": "^BSNLMB$",
+      "brand": "BSNL",
+      "type": "CARRIER",
+      "keywords": [
+        "bsnl"
+      ]
+    },
+    {
+      "pattern": "^HDFCBK$",
+      "brand": "HDFC Bank",
+      "type": "BANK",
+      "keywords": [
+        "hdfc bank",
+        "hdfc"
+      ]
+    },
+    {
+      "pattern": "^ICICIB$",
+      "brand": "ICICI Bank",
+      "type": "BANK",
+      "keywords": [
+        "icici bank",
+        "icici"
+      ]
+    },
+    {
+      "pattern": "^SBIPSG$",
+      "brand": "State Bank of India",
+      "type": "BANK",
+      "keywords": [
+        "state bank of india",
+        "state bank",
+        "sbi"
+      ]
+    },
+    {
+      "pattern": "^AXISBK$",
+      "brand": "Axis Bank",
+      "type": "BANK",
+      "keywords": [
+        "axis",
+        "axis bank"
+      ]
+    },
+    {
+      "pattern": "^KOTAKB$",
+      "brand": "Kotak Mahindra Bank",
+      "type": "BANK",
+      "keywords": [
+        "kotak",
+        "kotak mahindra"
+      ]
+    },
+    {
+      "pattern": "^PNBSMS$",
+      "brand": "Punjab National Bank",
+      "type": "BANK",
+      "keywords": [
+        "pnb",
+        "punjab national"
+      ]
+    },
+    {
+      "pattern": "^BOISMS$",
+      "brand": "Bank of India",
+      "type": "BANK",
+      "keywords": [
+        "bank of india",
+        "boi"
+      ]
+    },
+    {
+      "pattern": "^BOBSMS$",
+      "brand": "Bank of Baroda",
+      "type": "BANK",
+      "keywords": [
+        "bank of baroda",
+        "bob"
+      ]
+    },
+    {
+      "pattern": "^YESBNK$",
+      "brand": "Yes Bank",
+      "type": "BANK",
+      "keywords": [
+        "yes bank"
+      ]
+    },
+    {
+      "pattern": "^INDUSB$",
+      "brand": "IndusInd Bank",
+      "type": "BANK",
+      "keywords": [
+        "indusind"
+      ]
+    },
+    {
+      "pattern": "^PAYTM$",
+      "brand": "Paytm",
+      "type": "PAYMENT",
+      "keywords": [
+        "paytm",
+        "paytm payments"
+      ]
+    },
+    {
+      "pattern": "^PHNEPE$",
+      "brand": "PhonePe",
+      "type": "PAYMENT",
+      "keywords": [
+        "phonepe"
+      ]
+    },
+    {
+      "pattern": "^GOOPAY$",
+      "brand": "Google Pay",
+      "type": "PAYMENT",
+      "keywords": [
+        "google pay",
+        "gpay",
+        "tez"
+      ]
+    },
+    {
+      "pattern": "^BHARPE$",
+      "brand": "BharatPe",
+      "type": "PAYMENT",
+      "keywords": [
+        "bharatpe"
+      ]
+    },
+    {
+      "pattern": "^MOBKWK$",
+      "brand": "MobiKwik",
+      "type": "PAYMENT",
+      "keywords": [
+        "mobikwik"
+      ]
+    },
+    {
+      "pattern": "^AMAZON$",
+      "brand": "Amazon",
+      "type": "ECOMMERCE",
+      "keywords": [
+        "amazon",
+        "amazon.in"
+      ]
+    },
+    {
+      "pattern": "^FLIPKT$",
+      "brand": "Flipkart",
+      "type": "ECOMMERCE",
+      "keywords": [
+        "flipkart"
+      ]
+    },
+    {
+      "pattern": "^MYNTRA$",
+      "brand": "Myntra",
+      "type": "ECOMMERCE",
+      "keywords": [
+        "myntra"
+      ]
+    },
+    {
+      "pattern": "^SWIGGY$",
+      "brand": "Swiggy",
+      "type": "SERVICE",
+      "keywords": [
+        "swiggy"
+      ]
+    },
+    {
+      "pattern": "^ZOMATO$",
+      "brand": "Zomato",
+      "type": "SERVICE",
+      "keywords": [
+        "zomato"
+      ]
+    },
+    {
+      "pattern": "^UBER$",
+      "brand": "Uber",
+      "type": "SERVICE",
+      "keywords": [
+        "uber"
+      ]
+    },
+    {
+      "pattern": "^OLACAB$",
+      "brand": "Ola",
+      "type": "SERVICE",
+      "keywords": [
+        "ola",
+        "ola cabs"
+      ]
+    },
+    {
+      "pattern": "^IRCTC$",
+      "brand": "Indian Railways",
+      "type": "GOVERNMENT",
+      "keywords": [
+        "irctc",
+        "indian railways"
+      ]
+    },
+    {
+      "pattern": "^EPFOHO$",
+      "brand": "EPFO",
+      "type": "GOVERNMENT",
+      "keywords": [
+        "epfo",
+        "pf",
+        "provident fund"
+      ]
+    },
+    {
+      "pattern": "^AADHAAR$",
+      "brand": "UIDAI",
+      "type": "GOVERNMENT",
+      "keywords": [
+        "aadhaar",
+        "uidai"
+      ]
+    },
+    {
+      "pattern": "^INCOME$",
+      "brand": "Income Tax Department",
+      "type": "GOVERNMENT",
+      "keywords": [
+        "income tax",
+        "pan"
+      ]
+    }
+  ],
+  "signature": "3aeab7732191e90f296c1d868b49ac6dff215ce1d102aa63470ac035505f0efd7a87fb547c1ddf1d5fab8f12a2fad60b20e70d8168efaaa2fba44a8433e42903"
+}

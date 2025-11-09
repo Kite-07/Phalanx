@@ -93,6 +93,9 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.LinkedHashMap
+import dagger.hilt.android.AndroidEntryPoint
+import com.kite.phalanx.domain.usecase.MoveToTrashUseCase
+import javax.inject.Inject
 
 // WRITE_SMS and RECEIVE_SMS are automatically granted to default SMS app, don't request them
 private val REQUIRED_PERMISSIONS = arrayOf(
@@ -102,10 +105,22 @@ private val REQUIRED_PERMISSIONS = arrayOf(
     Manifest.permission.READ_PHONE_STATE // Required to check default SMS app
 )
 
+@AndroidEntryPoint
 class SmsListActivity : ComponentActivity() {
+
+    @Inject
+    lateinit var moveToTrashUseCase: MoveToTrashUseCase
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Phase 4: Check first-run status - redirect to welcome screen if needed
+        val prefs = getSharedPreferences("app_state", Context.MODE_PRIVATE)
+        if (!prefs.getBoolean("first_run_complete", false)) {
+            startActivity(Intent(this, FirstRunActivity::class.java))
+            finish()
+            return
+        }
 
         setContent {
             PhalanxTheme {
@@ -382,13 +397,13 @@ class SmsListActivity : ComponentActivity() {
                                         onDismissRequest = { showOverflowMenu = false }
                                     ) {
                                         DropdownMenuItem(
-                                            text = { Text("Settings") },
+                                            text = { Text("Trash Vault") },
                                             onClick = {
                                                 showOverflowMenu = false
-                                                startActivity(Intent(this@SmsListActivity, SettingsActivity::class.java))
+                                                startActivity(Intent(this@SmsListActivity, com.kite.phalanx.ui.TrashVaultActivity::class.java))
                                             },
                                             leadingIcon = {
-                                                Icon(Icons.Default.Settings, contentDescription = null)
+                                                Icon(Icons.Default.Delete, contentDescription = null)
                                             }
                                         )
                                         DropdownMenuItem(
@@ -411,14 +426,17 @@ class SmsListActivity : ComponentActivity() {
                                                 Icon(Icons.Default.Warning, contentDescription = null)
                                             }
                                         )
+                                        // Trusted Domains removed - now managed via Allow/Block List
+                                        // Users can trust domains via "Trust This Domain" button in Security Sheet
+                                        // or manage them in Settings → Security Settings → Allow/Block List
                                         DropdownMenuItem(
-                                            text = { Text("Trusted domains") },
+                                            text = { Text("Settings") },
                                             onClick = {
                                                 showOverflowMenu = false
-                                                startActivity(Intent(this@SmsListActivity, WhitelistedDomainsActivity::class.java))
+                                                startActivity(Intent(this@SmsListActivity, SettingsActivity::class.java))
                                             },
                                             leadingIcon = {
-                                                Icon(Icons.Default.CheckCircle, contentDescription = null)
+                                                Icon(Icons.Default.Settings, contentDescription = null)
                                             }
                                         )
                                     }
@@ -489,7 +507,7 @@ class SmsListActivity : ComponentActivity() {
                             showDeleteConfirmDialog = false
                             coroutineScope.launch {
                                 selectedThreads.forEach { sender ->
-                                    SmsOperations.deleteThread(context, sender)
+                                    SmsOperations.deleteThread(context, sender, moveToTrashUseCase)
                                 }
                                 selectedThreads = emptySet()
                                 refreshSmsList()
@@ -1026,9 +1044,9 @@ fun DeleteConfirmDialog(
         text = {
             Text(
                 if (threadCount > 1) {
-                    "Are you sure you want to delete $threadCount conversations? This action cannot be undone."
+                    "Delete $threadCount conversations? They will be moved to Trash Vault for 30 days."
                 } else {
-                    "Are you sure you want to delete this conversation? This action cannot be undone."
+                    "Delete this conversation? It will be moved to Trash Vault for 30 days."
                 }
             )
         },

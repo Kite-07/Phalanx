@@ -52,6 +52,9 @@ class SmsDetailViewModel @Inject constructor(
     // Cache domain profiles by message timestamp (to extract domain when trusting)
     private val domainProfileCache = mutableMapOf<Long, List<com.kite.phalanx.domain.model.DomainProfile>>()
 
+    // Cache expanded URLs by message timestamp (to show final destination in UI)
+    private val expandedUrlCache = mutableMapOf<Long, Map<String, ExpandedUrl>>()
+
     /**
      * Analyze a message for security threats.
      *
@@ -70,7 +73,23 @@ class SmsDetailViewModel @Inject constructor(
 
         viewModelScope.launch {
             try {
-                // Check database first (avoid re-analyzing previously seen messages)
+                // Phase 1: Extract links (always run - fast local operation)
+                Log.d(TAG, "Phase 1: Extracting links...")
+                val links = extractLinksUseCase.execute(messageText)
+                Log.d(TAG, "Found ${links.size} links: ${links.map { it.original }}")
+
+                // Phase 2: Profile domains (always run - fast local operation)
+                // This ensures domainProfileCache is populated even for cached verdicts
+                Log.d(TAG, "Phase 2: Profiling domains...")
+                val domainProfiles = links.map { link ->
+                    profileDomainUseCase.execute(link)
+                }
+                Log.d(TAG, "Profiled ${domainProfiles.size} domains")
+
+                // Cache domain profiles for later domain extraction (Trust Domain feature)
+                domainProfileCache[messageId] = domainProfiles
+
+                // Check database cache for verdict (skip expensive network operations)
                 val cachedVerdict = database.verdictDao().getVerdictForMessage(messageId)
                 if (cachedVerdict != null) {
                     Log.d(TAG, "Found cached verdict in database for message $messageId: ${cachedVerdict.level}")
@@ -81,16 +100,13 @@ class SmsDetailViewModel @Inject constructor(
 
                 Log.d(TAG, "No cached verdict found, performing full analysis...")
 
-                // Phase 1: Extract links
-                Log.d(TAG, "Phase 1: Extracting links...")
-                val links = extractLinksUseCase.execute(messageText)
-                Log.d(TAG, "Found ${links.size} links: ${links.map { it.original }}")
-
-                // If no links, skip analysis (GREEN by default)
+                // If no links, mark as GREEN
                 if (links.isEmpty()) {
                     Log.d(TAG, "No links found, marking as GREEN")
                     val verdict = analyzeMessageRiskUseCase.execute(
                         messageId = messageId.toString(),
+                        sender = sender,
+                        messageBody = messageText,
                         links = emptyList(),
                         domainProfiles = emptyList()
                     )
@@ -99,9 +115,9 @@ class SmsDetailViewModel @Inject constructor(
                     return@launch
                 }
 
-                // Phase 2: Expand URLs (with timeout protection)
+                // Phase 3: Expand URLs (with timeout protection)
                 // Note: URL expansion failures are non-fatal - we continue with domain profiling
-                Log.d(TAG, "Phase 2: Expanding URLs...")
+                Log.d(TAG, "Phase 3: Expanding URLs...")
                 val expandedUrls = mutableMapOf<String, ExpandedUrl>()
                 links.forEach { link ->
                     try {
@@ -117,18 +133,13 @@ class SmsDetailViewModel @Inject constructor(
                     }
                 }
 
-                // Phase 3: Profile domains
-                Log.d(TAG, "Phase 3: Profiling domains...")
-                val domainProfiles = links.map { link ->
-                    profileDomainUseCase.execute(link)
+                // Cache expanded URLs for UI (to show final destination)
+                if (expandedUrls.isNotEmpty()) {
+                    expandedUrlCache[messageId] = expandedUrls
                 }
-                Log.d(TAG, "Profiled ${domainProfiles.size} domains")
 
-                // Cache domain profiles for later domain extraction
-                domainProfileCache[messageId] = domainProfiles
-
-                // Phase 3.5: Check URL reputation (Stage 1C)
-                Log.d(TAG, "Phase 3.5: Checking URL reputation...")
+                // Phase 4: Check URL reputation (Stage 1C)
+                Log.d(TAG, "Phase 4: Checking URL reputation...")
                 val reputationResults = mutableMapOf<String, List<com.kite.phalanx.domain.model.ReputationResult>>()
                 links.forEach { link ->
                     try {
@@ -148,10 +159,12 @@ class SmsDetailViewModel @Inject constructor(
                     }
                 }
 
-                // Phase 4: Analyze risk and generate verdict
-                Log.d(TAG, "Phase 4: Analyzing risk...")
+                // Phase 5: Analyze risk and generate verdict
+                Log.d(TAG, "Phase 5: Analyzing risk...")
                 val verdict = analyzeMessageRiskUseCase.execute(
                     messageId = messageId.toString(),
+                    sender = sender,
+                    messageBody = messageText,
                     links = links,
                     domainProfiles = domainProfiles,
                     expandedUrls = expandedUrls,
@@ -168,6 +181,8 @@ class SmsDetailViewModel @Inject constructor(
                 // On error, mark as GREEN (fail-safe)
                 val verdict = analyzeMessageRiskUseCase.execute(
                     messageId = messageId.toString(),
+                    sender = sender,
+                    messageBody = messageText,
                     links = emptyList(),
                     domainProfiles = emptyList()
                 )
@@ -204,17 +219,35 @@ class SmsDetailViewModel @Inject constructor(
 
     /**
      * Get the registered domain for a message (from cached domain profiles).
+     * Returns the first non-empty registered domain.
      */
     fun getRegisteredDomain(messageId: Long): String? {
-        return domainProfileCache[messageId]?.firstOrNull()?.registeredDomain
+        return domainProfileCache[messageId]?.firstOrNull { it.registeredDomain.isNotBlank() }?.registeredDomain
     }
 
     /**
-     * Re-analyze all messages containing a specific domain and update their verdicts to GREEN.
-     * This is called when a user trusts a domain.
+     * Get the final expanded URL for a message (from cached expanded URLs).
+     * Returns the first expanded URL's final destination.
+     */
+    fun getFinalUrl(messageId: Long): String? {
+        return expandedUrlCache[messageId]?.values?.firstOrNull()?.finalUrl
+    }
+
+    /**
+     * Update verdicts for all messages containing a trusted domain to GREEN.
+     *
+     * This is called when a user trusts a domain by adding it to the allow list.
+     * The domain has already been added to AllowBlockListRepository, so any future
+     * analysis will automatically result in GREEN verdicts due to ALLOW rule precedence.
+     *
+     * For existing cached verdicts, we update them immediately to GREEN so the UI
+     * reflects the trust decision without requiring message reload.
+     *
+     * Phase 3 - Safety Rails: Trust This Domain now uses Allow/Block List system
+     * instead of legacy TrustedDomainsPreferences.
      */
     suspend fun trustDomainAndReanalyze(domain: String) {
-        Log.d(TAG, "Trust domain: $domain - Re-analyzing all messages with this domain")
+        Log.d(TAG, "Trust domain: $domain - Updating verdicts for messages with this domain")
 
         // Find all messages with this domain
         val messagesToUpdate = mutableListOf<Long>()
@@ -227,8 +260,9 @@ class SmsDetailViewModel @Inject constructor(
         Log.d(TAG, "Found ${messagesToUpdate.size} messages with domain $domain to update")
 
         // Update verdicts to GREEN for all messages with this domain
+        // The ALLOW rule in AllowBlockListRepository will ensure future analyses also return GREEN
         messagesToUpdate.forEach { messageId ->
-            val greenVerdict = com.kite.phalanx.domain.model.Verdict(
+            val greenVerdict = Verdict(
                 messageId = messageId.toString(),
                 level = VerdictLevel.GREEN,
                 score = 0,
@@ -249,12 +283,13 @@ class SmsDetailViewModel @Inject constructor(
                         timestamp = System.currentTimeMillis()
                     )
                 )
+                Log.d(TAG, "Updated verdict for message $messageId to GREEN")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to update verdict in database for message $messageId", e)
             }
         }
 
-        Log.d(TAG, "Successfully re-analyzed ${messagesToUpdate.size} messages")
+        Log.d(TAG, "Successfully updated ${messagesToUpdate.size} messages to GREEN")
     }
 
     /**
@@ -263,5 +298,6 @@ class SmsDetailViewModel @Inject constructor(
     fun clearCache() {
         _verdictCache.value = emptyMap()
         domainProfileCache.clear()
+        expandedUrlCache.clear()
     }
 }

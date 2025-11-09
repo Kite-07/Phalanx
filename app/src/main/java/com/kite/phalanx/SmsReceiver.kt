@@ -155,6 +155,8 @@ class SmsReceiver : BroadcastReceiver() {
             // Phase 4: Analyze risk
             val verdict = analyzeRiskUseCase.execute(
                 messageId = timestamp.toString(),
+                sender = sender,
+                messageBody = messageBody,
                 links = links,
                 domainProfiles = domainProfiles,
                 expandedUrls = expandedUrls,
@@ -172,8 +174,14 @@ class SmsReceiver : BroadcastReceiver() {
                 // Continue - don't let database errors prevent notification
             }
 
+            // Phase 3: Check if message was blocked by user rule
+            val isUserBlocked = verdict.reasons.any { it.label == "Blocked by User Rule" }
+
             // Show appropriate notification based on verdict level
-            if (verdict.level == VerdictLevel.AMBER || verdict.level == VerdictLevel.RED) {
+            if (isUserBlocked) {
+                // Suppress notification for user-blocked messages
+                Log.i(TAG, "Message blocked by user rule - notification suppressed")
+            } else if (verdict.level == VerdictLevel.AMBER || verdict.level == VerdictLevel.RED) {
                 // Show security threat notification for dangerous messages
                 val topReason = verdict.reasons.firstOrNull()?.label ?: "Unknown reason"
                 Log.i(TAG, "THREAT DETECTED! Level=${verdict.level}, reason=$topReason")

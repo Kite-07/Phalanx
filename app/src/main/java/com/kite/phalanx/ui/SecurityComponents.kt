@@ -311,8 +311,9 @@ fun SecurityExplanationSheet(
                         modifier = Modifier.padding(top = 8.dp)
                     )
 
-                    // Whitelist button (only for AMBER, not RED)
-                    if (onWhitelist != null && verdict.level != VerdictLevel.RED) {
+                    // Trust This Domain button (show for AMBER and RED)
+                    // Users should be able to override even dangerous domains if they trust the source
+                    if (onWhitelist != null) {
                         TextButton(
                             onClick = {
                                 onWhitelist()
