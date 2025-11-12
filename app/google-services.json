@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1044545763867",
+    "project_id": "phalanx-60355",
+    "storage_bucket": "phalanx-60355.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1044545763867:android:f9fc89430cf8fd3188d6be",
+        "android_client_info": {
+          "package_name": "com.kite.phalanx"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCMZ4c-GrEOhLkorOaqELv3BygQiuww91U"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

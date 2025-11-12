@@ -6,6 +6,9 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
 /**
  * Unit tests for CheckSenderMismatchUseCase (Phase 4).
@@ -19,6 +22,8 @@ import org.junit.Test
  * - Empty message/no brand claims
  * - Case-insensitive matching
  */
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [28])
 class CheckSenderMismatchUseCaseTest {
 
     private lateinit var useCase: CheckSenderMismatchUseCase
@@ -235,7 +240,7 @@ class CheckSenderMismatchUseCaseTest {
     @Test
     fun `metadata contains detection source`() = runTest {
         val senderId = "SPAM"
-        val messageBody = "Your HDFC Bank account needs verification"
+        val messageBody = "Your account needs verification from HDFC" // Uses keyword "hdfc" not full brand name
         val links = emptyList<Link>()
         val domainProfiles = emptyList<DomainProfile>()
 
@@ -243,7 +248,9 @@ class CheckSenderMismatchUseCaseTest {
 
         assertEquals(1, signals.size)
         assertNotNull(signals[0].metadata["detectionSource"])
-        assertTrue(signals[0].metadata["detectionSource"]!!.contains("keyword"))
+        // Should detect via keyword "hdfc" → detectionSource = "keyword:hdfc"
+        assertTrue("Detection source should contain 'keyword', got: ${signals[0].metadata["detectionSource"]}",
+            signals[0].metadata["detectionSource"]!!.contains("keyword"))
     }
 
     @Test

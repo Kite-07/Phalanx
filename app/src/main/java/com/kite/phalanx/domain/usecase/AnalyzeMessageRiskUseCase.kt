@@ -52,7 +52,8 @@ import javax.inject.Inject
 class AnalyzeMessageRiskUseCase @Inject constructor(
     @ApplicationContext private val context: Context,
     private val checkAllowBlockRulesUseCase: CheckAllowBlockRulesUseCase,
-    private val checkSenderMismatchUseCase: CheckSenderMismatchUseCase
+    private val checkSenderMismatchUseCase: CheckSenderMismatchUseCase,
+    private val detectLanguageAnomaliesUseCase: DetectLanguageAnomaliesUseCase
 ) {
 
     companion object {
@@ -185,6 +186,10 @@ class AnalyzeMessageRiskUseCase @Inject constructor(
             domainProfiles = domainProfiles
         )
         signals.addAll(senderMismatchSignals)
+
+        // Phase 6: Check for language anomalies in message text
+        val languageSignals = detectLanguageAnomaliesUseCase.execute(messageBody)
+        signals.addAll(languageSignals)
 
         // Calculate total risk score
         val totalScore = signals.sumOf { it.weight }
@@ -615,6 +620,44 @@ class AnalyzeMessageRiskUseCase @Inject constructor(
                             code = signal.code,
                             label = "Suspicious Sender for $claimedBrand",
                             details = "This message claims to be from $claimedBrand ($typeDescription), but the sender ID ($actualSender) doesn't match their verified patterns. This is likely a scam."
+                        )
+                    }
+
+                    // Phase 6: Language Anomalies
+                    SignalCode.ZERO_WIDTH_CHARS -> {
+                        val count = signal.metadata["count"] ?: "unknown"
+                        Reason(
+                            code = signal.code,
+                            label = "Hidden Characters Detected",
+                            details = "This message contains $count hidden zero-width characters. Scammers use these to evade detection or create confusion."
+                        )
+                    }
+
+                    SignalCode.WEIRD_CAPS -> {
+                        val sample = signal.metadata["sample"] ?: "text"
+                        Reason(
+                            code = signal.code,
+                            label = "Unusual Capitalization",
+                            details = "This message uses unusual alternating capitalization (e.g., \"$sample\"), which is sometimes used in spam or phishing attempts."
+                        )
+                    }
+
+                    SignalCode.DOUBLED_SPACES -> {
+                        val maxConsecutive = signal.metadata["maxConsecutive"] ?: "multiple"
+                        Reason(
+                            code = signal.code,
+                            label = "Excessive Spacing",
+                            details = "This message contains $maxConsecutive consecutive spaces, which may indicate automated generation or an attempt to evade filters."
+                        )
+                    }
+
+                    SignalCode.EXCESSIVE_UNICODE -> {
+                        val emojiCount = signal.metadata["emojiCount"] ?: "0"
+                        val unicodeRatio = signal.metadata["unicodeRatio"] ?: "0.00"
+                        Reason(
+                            code = signal.code,
+                            label = "Excessive Special Characters",
+                            details = "This message contains unusually high amounts of special characters or emojis ($emojiCount emojis, ${(unicodeRatio.toDoubleOrNull()?.times(100))?.toInt()}% non-standard characters), which is common in spam."
                         )
                     }
 

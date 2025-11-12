@@ -4,7 +4,6 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.provider.Telephony
-import android.util.Log
 import com.kite.phalanx.domain.model.VerdictLevel
 import com.kite.phalanx.domain.usecase.AnalyzeMessageRiskUseCase
 import com.kite.phalanx.domain.usecase.CheckUrlReputationUseCase
@@ -18,6 +17,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import timber.log.Timber
 
 /**
  * Broadcast receiver that listens for incoming SMS messages.
@@ -45,10 +45,6 @@ class SmsReceiver : BroadcastReceiver() {
 
     @Inject
     lateinit var database: AppDatabase
-
-    companion object {
-        private const val TAG = "SmsReceiver"
-    }
 
     override fun onReceive(context: Context, intent: Intent) {
         // When the app is the default SMS app, it receives SMS_DELIVER instead of SMS_RECEIVED
@@ -99,7 +95,7 @@ class SmsReceiver : BroadcastReceiver() {
         timestamp: Long
     ) {
         try {
-            Log.d(TAG, "Analyzing message from $sender for security threats...")
+            Timber.d("Analyzing message from $sender for security threats...")
 
             // Skip if message has no body
             if (messageBody.isBlank()) return
@@ -107,11 +103,11 @@ class SmsReceiver : BroadcastReceiver() {
             // Phase 1: Extract links
             val links = extractLinksUseCase.execute(messageBody)
             if (links.isEmpty()) {
-                Log.d(TAG, "No links found, skipping analysis")
+                Timber.d("No links found, skipping analysis")
                 return
             }
 
-            Log.d(TAG, "Found ${links.size} links: ${links.map { it.original }}")
+            Timber.d("Found ${links.size} links: ${links.map { it.original }}")
 
             // Phase 2: Expand URLs (with timeout protection)
             val expandedUrls = mutableMapOf<String, com.kite.phalanx.domain.model.ExpandedUrl>()
@@ -120,10 +116,10 @@ class SmsReceiver : BroadcastReceiver() {
                     val expandedUrl = urlExpansionRepository.expandUrl(link.original)
                     if (expandedUrl != null && expandedUrl.finalUrl != link.original) {
                         expandedUrls[link.original] = expandedUrl
-                        Log.d(TAG, "Expanded: ${link.original} -> ${expandedUrl.finalUrl}")
+                        Timber.d("Expanded: ${link.original} -> ${expandedUrl.finalUrl}")
                     }
                 } catch (e: Exception) {
-                    Log.w(TAG, "Failed to expand URL ${link.original}: ${e.message}")
+                    Timber.w("Failed to expand URL ${link.original}: ${e.message}")
                 }
             }
 
@@ -143,12 +139,12 @@ class SmsReceiver : BroadcastReceiver() {
 
                     val maliciousCount = results.count { it.isMalicious }
                     if (maliciousCount > 0) {
-                        Log.w(TAG, "Reputation check: $urlToCheck flagged by $maliciousCount service(s)")
+                        Timber.w("Reputation check: $urlToCheck flagged by $maliciousCount service(s)")
                     }
                 } catch (e: Exception) {
                     // Reputation check failed (timeout, network error, etc.)
                     // Continue analysis without reputation data - other signals will still catch threats
-                    Log.w(TAG, "Failed to check reputation for ${link.original}: ${e.message}")
+                    Timber.w("Failed to check reputation for ${link.original}: ${e.message}")
                 }
             }
 
@@ -163,14 +159,14 @@ class SmsReceiver : BroadcastReceiver() {
                 reputationResults = reputationResults
             )
 
-            Log.d(TAG, "Verdict: ${verdict.level}, score=${verdict.score}, reasons=${verdict.reasons.size}")
+            Timber.d("Verdict: ${verdict.level}, score=${verdict.score}, reasons=${verdict.reasons.size}")
 
             // Save verdict to database for future reference
             try {
                 database.verdictDao().insert(verdict.toEntity(messageId = timestamp))
-                Log.d(TAG, "Verdict saved to database for message $timestamp")
+                Timber.d("Verdict saved to database for message $timestamp")
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to save verdict to database", e)
+                Timber.e(e, "Failed to save verdict to database")
                 // Continue - don't let database errors prevent notification
             }
 
@@ -180,11 +176,11 @@ class SmsReceiver : BroadcastReceiver() {
             // Show appropriate notification based on verdict level
             if (isUserBlocked) {
                 // Suppress notification for user-blocked messages
-                Log.i(TAG, "Message blocked by user rule - notification suppressed")
+                Timber.i("Message blocked by user rule - notification suppressed")
             } else if (verdict.level == VerdictLevel.AMBER || verdict.level == VerdictLevel.RED) {
                 // Show security threat notification for dangerous messages
                 val topReason = verdict.reasons.firstOrNull()?.label ?: "Unknown reason"
-                Log.i(TAG, "THREAT DETECTED! Level=${verdict.level}, reason=$topReason")
+                Timber.i("THREAT DETECTED! Level=${verdict.level}, reason=$topReason")
 
                 NotificationHelper.showSecurityThreatNotification(
                     context = context,
@@ -204,7 +200,7 @@ class SmsReceiver : BroadcastReceiver() {
                 )
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error analyzing message security", e)
+            Timber.e(e, "Error analyzing message security")
             // Don't crash - fail gracefully
         }
     }

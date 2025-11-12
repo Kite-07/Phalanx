@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+option java_package = "com.kite.phalanx";
+option java_multiple_files = true;
+
+message SecuritySettings {
+  enum SensitivityLevel {
+    LOW = 0;
+    MEDIUM = 1;
+    HIGH = 2;
+  }
+
+  // Threat detection sensitivity level
+  SensitivityLevel sensitivity = 1;
+
+  // Auto-allow OTP messages
+  bool otp_passthrough = 2;
+
+  // Sender pack region code (e.g., "IN", "US", "GB")
+  string sender_pack_region = 3;
+
+  // ML-based intent classification feature flag (Phase 6)
+  bool tflite_classifier_enabled = 4;
+
+  // Per-SIM security settings (SIM slot ID → enabled)
+  map<int32, bool> per_sim_enabled = 5;
+}

@@ -70,6 +70,10 @@ class TrashVaultRepositoryImpl @Inject constructor(
         return trashedMessageDao.deleteExpiredMessages(now)
     }
 
+    override suspend fun purgeExpiredMessages(now: Long): Int {
+        return trashedMessageDao.deleteExpiredMessages(now)
+    }
+
     override suspend fun permanentlyDelete(messageId: Long) {
         trashedMessageDao.delete(messageId)
     }

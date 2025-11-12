@@ -49,9 +49,10 @@ enum class SignalCode {
     // Path signals
     SUSPICIOUS_PATH,             // Path contains suspicious keywords
 
-    // Content signals (Phase 1)
+    // Content signals (Phase 6)
     ZERO_WIDTH_CHARS,            // Message contains zero-width characters
     WEIRD_CAPS,                  // Unusual capitalization patterns
+    DOUBLED_SPACES,              // Excessive or doubled whitespace
     EXCESSIVE_UNICODE,           // Excessive Unicode/emoji usage
 
     // Sender signals (requires sender intelligence packs - Phase 4)

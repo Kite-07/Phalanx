@@ -3,6 +3,7 @@ package com.kite.phalanx.ui
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.firebase.crashlytics.FirebaseCrashlytics
 import com.kite.phalanx.NotificationHelper
 import com.kite.phalanx.domain.model.ExpandedUrl
 import com.kite.phalanx.domain.model.Verdict
@@ -16,11 +17,11 @@ import com.kite.phalanx.data.source.local.AppDatabase
 import com.kite.phalanx.data.source.local.entity.toDomainModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
-import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import timber.log.Timber
 import javax.inject.Inject
 
 /**
@@ -63,28 +64,28 @@ class SmsDetailViewModel @Inject constructor(
      * @param sender The sender's phone number or identifier
      */
     fun analyzeMessage(messageId: Long, messageText: String, sender: String) {
-        Log.d(TAG, "analyzeMessage called for messageId=$messageId, sender='$sender', text='$messageText'")
+        Timber.d("analyzeMessage called for messageId=$messageId, sender='$sender', text='$messageText'")
 
         // Skip if already in memory cache
         if (_verdictCache.value.containsKey(messageId)) {
-            Log.d(TAG, "Message $messageId already in memory cache, skipping")
+            Timber.d("Message $messageId already in memory cache, skipping")
             return
         }
 
         viewModelScope.launch {
             try {
                 // Phase 1: Extract links (always run - fast local operation)
-                Log.d(TAG, "Phase 1: Extracting links...")
+                Timber.d("Phase 1: Extracting links...")
                 val links = extractLinksUseCase.execute(messageText)
-                Log.d(TAG, "Found ${links.size} links: ${links.map { it.original }}")
+                Timber.d("Found ${links.size} links: ${links.map { it.original }}")
 
                 // Phase 2: Profile domains (always run - fast local operation)
                 // This ensures domainProfileCache is populated even for cached verdicts
-                Log.d(TAG, "Phase 2: Profiling domains...")
+                Timber.d("Phase 2: Profiling domains...")
                 val domainProfiles = links.map { link ->
                     profileDomainUseCase.execute(link)
                 }
-                Log.d(TAG, "Profiled ${domainProfiles.size} domains")
+                Timber.d("Profiled ${domainProfiles.size} domains")
 
                 // Cache domain profiles for later domain extraction (Trust Domain feature)
                 domainProfileCache[messageId] = domainProfiles
@@ -92,17 +93,17 @@ class SmsDetailViewModel @Inject constructor(
                 // Check database cache for verdict (skip expensive network operations)
                 val cachedVerdict = database.verdictDao().getVerdictForMessage(messageId)
                 if (cachedVerdict != null) {
-                    Log.d(TAG, "Found cached verdict in database for message $messageId: ${cachedVerdict.level}")
+                    Timber.d("Found cached verdict in database for message $messageId: ${cachedVerdict.level}")
                     val verdict = cachedVerdict.toDomainModel()
                     updateVerdictCache(messageId, verdict, sender)
                     return@launch
                 }
 
-                Log.d(TAG, "No cached verdict found, performing full analysis...")
+                Timber.d("No cached verdict found, performing full analysis...")
 
                 // If no links, mark as GREEN
                 if (links.isEmpty()) {
-                    Log.d(TAG, "No links found, marking as GREEN")
+                    Timber.d("No links found, marking as GREEN")
                     val verdict = analyzeMessageRiskUseCase.execute(
                         messageId = messageId.toString(),
                         sender = sender,
@@ -110,26 +111,26 @@ class SmsDetailViewModel @Inject constructor(
                         links = emptyList(),
                         domainProfiles = emptyList()
                     )
-                    Log.d(TAG, "Verdict: ${verdict.level}, score=${verdict.score}")
+                    Timber.d("Verdict: ${verdict.level}, score=${verdict.score}")
                     updateVerdictCache(messageId, verdict, sender)
                     return@launch
                 }
 
                 // Phase 3: Expand URLs (with timeout protection)
                 // Note: URL expansion failures are non-fatal - we continue with domain profiling
-                Log.d(TAG, "Phase 3: Expanding URLs...")
+                Timber.d("Phase 3: Expanding URLs...")
                 val expandedUrls = mutableMapOf<String, ExpandedUrl>()
                 links.forEach { link ->
                     try {
                         val expandedUrl = urlExpansionRepository.expandUrl(link.original)
                         if (expandedUrl != null && expandedUrl.finalUrl != link.original) {
                             expandedUrls[link.original] = expandedUrl
-                            Log.d(TAG, "Expanded: ${link.original} -> ${expandedUrl.finalUrl}")
+                            Timber.d("Expanded: ${link.original} -> ${expandedUrl.finalUrl}")
                         }
                     } catch (e: Exception) {
                         // URL expansion failed (timeout, network error, etc.)
                         // Continue analysis without expansion - domain profiling will still catch threats
-                        Log.w(TAG, "Failed to expand URL ${link.original}: ${e.message}")
+                        Timber.w("Failed to expand URL ${link.original}: ${e.message}")
                     }
                 }
 
@@ -139,7 +140,7 @@ class SmsDetailViewModel @Inject constructor(
                 }
 
                 // Phase 4: Check URL reputation (Stage 1C)
-                Log.d(TAG, "Phase 4: Checking URL reputation...")
+                Timber.d("Phase 4: Checking URL reputation...")
                 val reputationResults = mutableMapOf<String, List<com.kite.phalanx.domain.model.ReputationResult>>()
                 links.forEach { link ->
                     try {
@@ -150,17 +151,17 @@ class SmsDetailViewModel @Inject constructor(
 
                         val maliciousCount = results.count { it.isMalicious }
                         if (maliciousCount > 0) {
-                            Log.w(TAG, "Reputation check: $urlToCheck flagged by $maliciousCount service(s)")
+                            Timber.w("Reputation check: $urlToCheck flagged by $maliciousCount service(s)")
                         }
                     } catch (e: Exception) {
                         // Reputation check failed (timeout, network error, etc.)
                         // Continue analysis without reputation data - other signals will still catch threats
-                        Log.w(TAG, "Failed to check reputation for ${link.original}: ${e.message}")
+                        Timber.w("Failed to check reputation for ${link.original}: ${e.message}")
                     }
                 }
 
                 // Phase 5: Analyze risk and generate verdict
-                Log.d(TAG, "Phase 5: Analyzing risk...")
+                Timber.d("Phase 5: Analyzing risk...")
                 val verdict = analyzeMessageRiskUseCase.execute(
                     messageId = messageId.toString(),
                     sender = sender,
@@ -170,14 +171,15 @@ class SmsDetailViewModel @Inject constructor(
                     expandedUrls = expandedUrls,
                     reputationResults = reputationResults
                 )
-                Log.d(TAG, "Verdict: ${verdict.level}, score=${verdict.score}, reasons=${verdict.reasons.size}")
+                Timber.d("Verdict: ${verdict.level}, score=${verdict.score}, reasons=${verdict.reasons.size}")
 
                 // Cache the verdict
                 updateVerdictCache(messageId, verdict, sender)
-                Log.d(TAG, "Verdict cached. Cache size: ${_verdictCache.value.size}")
+                Timber.d("Verdict cached. Cache size: ${_verdictCache.value.size}")
 
             } catch (e: Exception) {
-                Log.e(TAG, "Error analyzing message", e)
+                Timber.e(e, "Error analyzing message")
+                FirebaseCrashlytics.getInstance().recordException(e)
                 // On error, mark as GREEN (fail-safe)
                 val verdict = analyzeMessageRiskUseCase.execute(
                     messageId = messageId.toString(),
@@ -189,10 +191,6 @@ class SmsDetailViewModel @Inject constructor(
                 updateVerdictCache(messageId, verdict, sender)
             }
         }
-    }
-
-    companion object {
-        private const val TAG = "SmsDetailViewModel"
     }
 
     /**
@@ -213,7 +211,7 @@ class SmsDetailViewModel @Inject constructor(
 
         // Log the verdict but don't send notification (that's only for new messages in SmsReceiver)
         if (verdict.level == VerdictLevel.AMBER || verdict.level == VerdictLevel.RED) {
-            Log.d(TAG, "Threat detected: ${verdict.level} verdict (no notification - message already received)")
+            Timber.d("Threat detected: ${verdict.level} verdict (no notification - message already received)")
         }
     }
 
@@ -247,7 +245,7 @@ class SmsDetailViewModel @Inject constructor(
      * instead of legacy TrustedDomainsPreferences.
      */
     suspend fun trustDomainAndReanalyze(domain: String) {
-        Log.d(TAG, "Trust domain: $domain - Updating verdicts for messages with this domain")
+        Timber.d("Trust domain: $domain - Updating verdicts for messages with this domain")
 
         // Find all messages with this domain
         val messagesToUpdate = mutableListOf<Long>()
@@ -257,7 +255,7 @@ class SmsDetailViewModel @Inject constructor(
             }
         }
 
-        Log.d(TAG, "Found ${messagesToUpdate.size} messages with domain $domain to update")
+        Timber.d("Found ${messagesToUpdate.size} messages with domain $domain to update")
 
         // Update verdicts to GREEN for all messages with this domain
         // The ALLOW rule in AllowBlockListRepository will ensure future analyses also return GREEN
@@ -283,13 +281,13 @@ class SmsDetailViewModel @Inject constructor(
                         timestamp = System.currentTimeMillis()
                     )
                 )
-                Log.d(TAG, "Updated verdict for message $messageId to GREEN")
+                Timber.d("Updated verdict for message $messageId to GREEN")
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to update verdict in database for message $messageId", e)
+                Timber.e(e, "Failed to update verdict in database for message $messageId")
             }
         }
 
-        Log.d(TAG, "Successfully updated ${messagesToUpdate.size} messages to GREEN")
+        Timber.d("Successfully updated ${messagesToUpdate.size} messages to GREEN")
     }
 
     /**

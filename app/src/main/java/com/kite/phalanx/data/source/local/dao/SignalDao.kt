@@ -26,4 +26,13 @@ interface SignalDao {
 
     @Query("DELETE FROM signals")
     suspend fun deleteAll()
+
+    /**
+     * Phase 7: Delete orphaned signals whose verdicts no longer exist.
+     * Used for cache cleanup to remove dangling signal records.
+     *
+     * @return Number of orphaned signals deleted
+     */
+    @Query("DELETE FROM signals WHERE messageId NOT IN (SELECT messageId FROM verdicts)")
+    suspend fun deleteOrphaned(): Int
 }

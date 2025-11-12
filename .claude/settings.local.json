@@ -27,7 +27,14 @@
       "Bash(nul)",
       "Bash(findstr:*)",
       "Bash(python:*)",
-      "Bash(pip install:*)"
+      "Bash(pip install:*)",
+      "Bash(gradlew.bat testDebugUnitTest:*)",
+      "Bash(gradlew.bat test:*)",
+      "Bash(del \"C:\\Users\\Kite\\AndroidStudioProjects\\Phalanx\\app\\src\\main\\java\\com\\kite\\phalanx\\worker\\TrashPurgeWorker.kt\")",
+      "Bash(find:*)",
+      "WebFetch(domain:ibb.co)",
+      "WebFetch(domain:i.ibb.co)",
+      "Bash(.gradlew.bat:*)"
     ],
     "deny": [],
     "ask": []

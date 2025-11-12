@@ -1,12 +1,12 @@
 package com.kite.phalanx.domain.usecase
 
-import android.util.Log
 import com.kite.phalanx.data.repository.SafeBrowsingRepository
 import com.kite.phalanx.data.repository.URLhausRepository
 import com.kite.phalanx.domain.model.ReputationResult
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import javax.inject.Inject
+import timber.log.Timber
 
 /**
  * Use case for checking URL reputation against multiple threat databases.
@@ -23,11 +23,6 @@ class CheckUrlReputationUseCase @Inject constructor(
     private val safeBrowsingRepository: SafeBrowsingRepository,
     private val urlhausRepository: URLhausRepository
 ) {
-
-    companion object {
-        private const val TAG = "CheckUrlReputationUseCase"
-    }
-
     /**
      * Check a URL against all reputation services in parallel.
      *
@@ -38,7 +33,7 @@ class CheckUrlReputationUseCase @Inject constructor(
      * @return List of reputation results from all services
      */
     suspend fun execute(url: String): List<ReputationResult> = coroutineScope {
-        Log.d(TAG, "Checking reputation for: $url")
+        Timber.d("Checking reputation for: $url")
 
         // Query all services in parallel for speed
         val safeBrowsingDeferred = async { safeBrowsingRepository.checkUrl(url) }
@@ -53,12 +48,12 @@ class CheckUrlReputationUseCase @Inject constructor(
         // Log summary
         val maliciousCount = results.count { it.isMalicious }
         if (maliciousCount > 0) {
-            Log.w(TAG, "URL flagged as malicious by $maliciousCount service(s): $url")
+            Timber.w("URL flagged as malicious by $maliciousCount service(s): $url")
             results.filter { it.isMalicious }.forEach {
-                Log.w(TAG, "  - ${it.source}: ${it.threatType} (${it.metadata})")
+                Timber.w("  - ${it.source}: ${it.threatType} (${it.metadata})")
             }
         } else {
-            Log.d(TAG, "URL clean according to all reputation services: $url")
+            Timber.d("URL clean according to all reputation services: $url")
         }
 
         results

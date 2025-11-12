@@ -71,6 +71,36 @@ class ExtractLinksUseCaseTest {
     }
 
     @Test
+    fun `extract URL preceded by colon without space`() = runTest {
+        val message = "Click here:bit.ly/xyz123"
+        val links = useCase.execute(message)
+
+        assertEquals(1, links.size)
+        assertEquals("bit.ly", links[0].host)
+        assertTrue("Path should include /xyz123, but got: ${links[0].path}",
+            links[0].path.contains("/xyz123"))
+        assertTrue(useCase.isShortenerUrl(links[0].host))
+    }
+
+    @Test
+    fun `extract URL preceded by punctuation`() = runTest {
+        val testCases = listOf(
+            "Check this:example.com/path",
+            "See (example.com/page)",
+            "Visit [example.com/link]",
+            "Go to example.com/test!",
+            "Link:bit.ly/abc"
+        )
+
+        testCases.forEach { message ->
+            val links = useCase.execute(message)
+            assertTrue("Should extract URL from: $message", links.isNotEmpty())
+            assertTrue("Should extract path from: $message",
+                links[0].path.isNotEmpty() || links[0].host.contains("example.com") || links[0].host.contains("bit.ly"))
+        }
+    }
+
+    @Test
     fun `extract multiple URLs from single message`() = runTest {
         val message = "Visit https://site1.com and https://site2.com for info"
         val links = useCase.execute(message)

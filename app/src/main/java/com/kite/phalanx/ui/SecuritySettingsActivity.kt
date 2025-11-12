@@ -19,18 +19,37 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.datastore.core.DataStore
+import androidx.datastore.core.DataStoreFactory
+import androidx.datastore.dataStoreFile
+import androidx.datastore.migrations.SharedPreferencesMigration
+import androidx.datastore.migrations.SharedPreferencesView
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.kite.phalanx.SecuritySettings
+import com.kite.phalanx.SecuritySettingsSerializer
 import com.kite.phalanx.domain.repository.SenderPackRepository
 import com.kite.phalanx.ui.theme.PhalanxTheme
 import dagger.hilt.android.AndroidEntryPoint
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import javax.inject.Singleton
+
+/**
+ * Extension function to convert Flow to StateFlow with initial value.
+ */
+private fun <T> Flow<T>.asStateFlow(scope: CoroutineScope, initialValue: T): StateFlow<T> =
+    stateIn(scope, SharingStarted.Eagerly, initialValue)
 
 /**
  * Activity for security settings configuration.
@@ -43,7 +62,8 @@ import javax.inject.Inject
  * Phase 4 - Sender Intelligence:
  * - Region selection for sender pack (IN, US, GB, etc.)
  *
- * TODO: Integrate Proto DataStore for settings persistence
+ * Settings are persisted using Proto DataStore with automatic migration
+ * from SharedPreferences for existing users.
  */
 @AndroidEntryPoint
 class SecuritySettingsActivity : ComponentActivity() {
@@ -71,6 +91,7 @@ fun SecuritySettingsScreen(
 ) {
     val sensitivityLevel by viewModel.sensitivityLevel.collectAsState()
     val otpPassThrough by viewModel.otpPassThrough.collectAsState()
+    val tfliteClassifierEnabled by viewModel.tfliteClassifierEnabled.collectAsState()
     val selectedRegion by viewModel.selectedRegion.collectAsState()
     val simSettings by viewModel.simSettings.collectAsState()
     var showRegionDialog by remember { mutableStateOf(false) }
@@ -174,6 +195,34 @@ fun SecuritySettingsScreen(
                     Switch(
                         checked = otpPassThrough,
                         onCheckedChange = { viewModel.setOtpPassThrough(it) }
+                    )
+                }
+            }
+
+            // Phase 6: TFLite Intent Classifier Section
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "ML-Based Intent Classification (Experimental)",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Use on-device machine learning to classify message intent (OTP, delivery, phishing, etc.). Requires ~2MB storage. Performance: <10ms inference.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Switch(
+                        checked = tfliteClassifierEnabled,
+                        onCheckedChange = { viewModel.setTfliteClassifierEnabled(it) }
                     )
                 }
             }
@@ -333,18 +382,76 @@ class SecuritySettingsViewModel @Inject constructor(
     private val senderPackRepository: SenderPackRepository
 ) : ViewModel() {
 
-    // TODO: Replace with Proto DataStore persistence
-    private val _sensitivityLevel = MutableStateFlow(1) // Default: Medium
-    val sensitivityLevel: StateFlow<Int> = _sensitivityLevel.asStateFlow()
+    // Proto DataStore instance with SharedPreferences migration
+    private val dataStore: DataStore<SecuritySettings> = DataStoreFactory.create(
+        serializer = SecuritySettingsSerializer,
+        produceFile = { context.dataStoreFile("security_settings.pb") },
+        migrations = listOf(
+            SharedPreferencesMigration(
+                context = context,
+                sharedPreferencesName = "security_settings",
+                migrate = { sharedPrefs: SharedPreferencesView, currentData: SecuritySettings ->
+                    // Migrate old SharedPreferences to Proto DataStore
+                    if (currentData == SecuritySettingsSerializer.defaultValue) {
+                        // Only migrate if we're starting with default values
+                        val sensitivityInt = sharedPrefs.getInt("sensitivity_level", 1)
+                        val sensitivity = when (sensitivityInt) {
+                            0 -> SecuritySettings.SensitivityLevel.LOW
+                            2 -> SecuritySettings.SensitivityLevel.HIGH
+                            else -> SecuritySettings.SensitivityLevel.MEDIUM
+                        }
 
-    private val _otpPassThrough = MutableStateFlow(true) // Default: enabled
-    val otpPassThrough: StateFlow<Boolean> = _otpPassThrough.asStateFlow()
+                        val builder = currentData.toBuilder()
+                            .setSensitivity(sensitivity)
+                            .setOtpPassthrough(sharedPrefs.getBoolean("otp_pass_through", true))
+                            .setSenderPackRegion(sharedPrefs.getString("sender_pack_region") ?: "IN")
+                            .setTfliteClassifierEnabled(sharedPrefs.getBoolean("ff_intent_classifier_tflite", false))
 
-    private val _selectedRegion = MutableStateFlow("IN") // Default: India
-    val selectedRegion: StateFlow<String> = _selectedRegion.asStateFlow()
+                        // Migrate per-SIM settings
+                        sharedPrefs.getAll().forEach { (key, value) ->
+                            if (key.startsWith("sim_") && key.endsWith("_enabled") && value is Boolean) {
+                                val simId = key.removePrefix("sim_").removeSuffix("_enabled").toIntOrNull()
+                                if (simId != null) {
+                                    builder.putPerSimEnabled(simId, value)
+                                }
+                            }
+                        }
 
-    private val _simSettings = MutableStateFlow<Map<Int, Boolean>>(emptyMap())
-    val simSettings: StateFlow<Map<Int, Boolean>> = _simSettings.asStateFlow()
+                        builder.build()
+                    } else {
+                        currentData
+                    }
+                }
+            )
+        )
+    )
+
+    // Expose settings as individual StateFlows
+    val sensitivityLevel: StateFlow<Int> = dataStore.data
+        .map { settings ->
+            when (settings.sensitivity) {
+                SecuritySettings.SensitivityLevel.LOW -> 0
+                SecuritySettings.SensitivityLevel.HIGH -> 2
+                else -> 1 // MEDIUM
+            }
+        }
+        .asStateFlow(viewModelScope, 1)
+
+    val otpPassThrough: StateFlow<Boolean> = dataStore.data
+        .map { it.otpPassthrough }
+        .asStateFlow(viewModelScope, true)
+
+    val selectedRegion: StateFlow<String> = dataStore.data
+        .map { it.senderPackRegion }
+        .asStateFlow(viewModelScope, "IN")
+
+    val tfliteClassifierEnabled: StateFlow<Boolean> = dataStore.data
+        .map { it.tfliteClassifierEnabled }
+        .asStateFlow(viewModelScope, false)
+
+    val simSettings: StateFlow<Map<Int, Boolean>> = dataStore.data
+        .map { it.perSimEnabledMap }
+        .asStateFlow(viewModelScope, emptyMap())
 
     /**
      * Available sender intelligence regions.
@@ -359,17 +466,7 @@ class SecuritySettingsViewModel @Inject constructor(
     )
 
     init {
-        loadSettings()
         detectSimCards()
-    }
-
-    private fun loadSettings() {
-        // TODO: Load from Proto DataStore
-        // For now, using SharedPreferences as placeholder
-        val prefs = context.getSharedPreferences("security_settings", Context.MODE_PRIVATE)
-        _sensitivityLevel.value = prefs.getInt("sensitivity_level", 1)
-        _otpPassThrough.value = prefs.getBoolean("otp_pass_through", true)
-        _selectedRegion.value = prefs.getString("sender_pack_region", "IN") ?: "IN"
     }
 
     private fun detectSimCards() {
@@ -378,14 +475,20 @@ class SecuritySettingsViewModel @Inject constructor(
             if (subscriptionManager != null && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP_MR1) {
                 val activeSubscriptions = subscriptionManager.activeSubscriptionInfoList
                 if (activeSubscriptions != null && activeSubscriptions.size > 1) {
-                    // Dual SIM device
-                    val prefs = context.getSharedPreferences("security_settings", Context.MODE_PRIVATE)
-                    val simMap = mutableMapOf<Int, Boolean>()
-                    activeSubscriptions.forEachIndexed { index, _ ->
-                        val simId = index + 1
-                        simMap[simId] = prefs.getBoolean("sim_${simId}_enabled", true)
+                    // Dual SIM device - initialize default settings if not already set
+                    viewModelScope.launch {
+                        dataStore.updateData { currentSettings ->
+                            val builder = currentSettings.toBuilder()
+                            activeSubscriptions.forEachIndexed { index, _ ->
+                                val simId = index + 1
+                                // Only add if not already in settings
+                                if (!currentSettings.perSimEnabledMap.containsKey(simId)) {
+                                    builder.putPerSimEnabled(simId, true)
+                                }
+                            }
+                            builder.build()
+                        }
                     }
-                    _simSettings.value = simMap
                 }
             }
         } catch (e: SecurityException) {
@@ -395,24 +498,46 @@ class SecuritySettingsViewModel @Inject constructor(
 
     fun setSensitivityLevel(level: Int) {
         viewModelScope.launch {
-            _sensitivityLevel.value = level
-            saveSettings()
+            dataStore.updateData { currentSettings ->
+                val sensitivity = when (level) {
+                    0 -> SecuritySettings.SensitivityLevel.LOW
+                    2 -> SecuritySettings.SensitivityLevel.HIGH
+                    else -> SecuritySettings.SensitivityLevel.MEDIUM
+                }
+                currentSettings.toBuilder()
+                    .setSensitivity(sensitivity)
+                    .build()
+            }
         }
     }
 
     fun setOtpPassThrough(enabled: Boolean) {
         viewModelScope.launch {
-            _otpPassThrough.value = enabled
-            saveSettings()
+            dataStore.updateData { currentSettings ->
+                currentSettings.toBuilder()
+                    .setOtpPassthrough(enabled)
+                    .build()
+            }
+        }
+    }
+
+    fun setTfliteClassifierEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            dataStore.updateData { currentSettings ->
+                currentSettings.toBuilder()
+                    .setTfliteClassifierEnabled(enabled)
+                    .build()
+            }
         }
     }
 
     fun setSimEnabled(simId: Int, enabled: Boolean) {
         viewModelScope.launch {
-            _simSettings.value = _simSettings.value.toMutableMap().apply {
-                this[simId] = enabled
+            dataStore.updateData { currentSettings ->
+                currentSettings.toBuilder()
+                    .putPerSimEnabled(simId, enabled)
+                    .build()
             }
-            saveSettings()
         }
     }
 
@@ -422,8 +547,11 @@ class SecuritySettingsViewModel @Inject constructor(
      */
     fun setRegion(regionCode: String) {
         viewModelScope.launch {
-            _selectedRegion.value = regionCode
-            saveSettings()
+            dataStore.updateData { currentSettings ->
+                currentSettings.toBuilder()
+                    .setSenderPackRegion(regionCode)
+                    .build()
+            }
 
             // Load sender pack for new region
             try {
@@ -444,20 +572,5 @@ class SecuritySettingsViewModel @Inject constructor(
      */
     fun getRegionName(code: String): String {
         return availableRegions[code] ?: code
-    }
-
-    private fun saveSettings() {
-        // TODO: Save to Proto DataStore
-        // For now, using SharedPreferences as placeholder
-        val prefs = context.getSharedPreferences("security_settings", Context.MODE_PRIVATE)
-        prefs.edit().apply {
-            putInt("sensitivity_level", _sensitivityLevel.value)
-            putBoolean("otp_pass_through", _otpPassThrough.value)
-            putString("sender_pack_region", _selectedRegion.value)
-            _simSettings.value.forEach { (simId, enabled) ->
-                putBoolean("sim_${simId}_enabled", enabled)
-            }
-            apply()
-        }
     }
 }

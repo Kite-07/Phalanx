@@ -3,15 +3,13 @@ package com.kite.phalanx
 import android.content.Context
 import android.net.Uri
 import android.provider.Telephony
-import android.util.Log
 import java.util.LinkedHashMap
+import timber.log.Timber
 
 /**
  * Utility for loading unified SMS and MMS messages
  */
 object MessageLoader {
-    private const val TAG = "MessageLoader"
-
     /**
      * Load all messages (SMS + MMS) for a specific sender/thread
      * Returns messages sorted by timestamp (oldest first)
@@ -81,7 +79,7 @@ object MessageLoader {
                         )
                     )
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error parsing SMS", e)
+                    Timber.e(e, "Error parsing SMS")
                 }
             }
         }
@@ -173,7 +171,7 @@ object MessageLoader {
                         }
                     }
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error parsing MMS", e)
+                    Timber.e(e, "Error parsing MMS")
                 }
             }
         }
@@ -254,7 +252,7 @@ object MessageLoader {
                         status = status
                     )
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error parsing SMS in conversation list", e)
+                    Timber.e(e, "Error parsing SMS in conversation list")
                 }
             }
         }
@@ -340,7 +338,7 @@ object MessageLoader {
                         )
                     }
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error parsing MMS in conversation list", e)
+                    Timber.e(e, "Error parsing MMS in conversation list")
                 }
             }
         }

@@ -23,4 +23,14 @@ interface VerdictDao {
 
     @Query("DELETE FROM verdicts")
     suspend fun deleteAll()
+
+    /**
+     * Phase 7: Delete verdicts older than the specified timestamp.
+     * Used for cache cleanup to remove stale verdicts (30+ days old).
+     *
+     * @param timestamp Unix timestamp in milliseconds
+     * @return Number of verdicts deleted
+     */
+    @Query("DELETE FROM verdicts WHERE timestamp < :timestamp")
+    suspend fun deleteOlderThan(timestamp: Long): Int
 }

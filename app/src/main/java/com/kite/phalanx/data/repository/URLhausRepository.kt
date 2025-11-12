@@ -1,6 +1,5 @@
 package com.kite.phalanx.data.repository
 
-import android.util.Log
 import android.util.LruCache
 import com.kite.phalanx.domain.model.ReputationResult
 import com.kite.phalanx.domain.model.ThreatType
@@ -13,6 +12,7 @@ import okhttp3.Request
 import org.json.JSONObject
 import javax.inject.Inject
 import javax.inject.Singleton
+import timber.log.Timber
 
 /**
  * URLhaus API integration.
@@ -30,7 +30,6 @@ class URLhausRepository @Inject constructor(
 ) : ReputationService {
 
     companion object {
-        private const val TAG = "URLhausRepository"
         private const val API_ENDPOINT = "https://urlhaus-api.abuse.ch/v1/url/"
         private const val CACHE_SIZE = 1000
         private const val CACHE_TTL_MS = 24 * 60 * 60 * 1000L // 24 hours
@@ -44,7 +43,7 @@ class URLhausRepository @Inject constructor(
             // Check cache first
             cache[url]?.let { cached ->
                 if (System.currentTimeMillis() - cached.timestamp < CACHE_TTL_MS) {
-                    Log.d(TAG, "Cache hit for $url: ${cached.isMalicious}")
+                    Timber.d("Cache hit for $url: ${cached.isMalicious}")
                     return@withContext cached
                 }
             }
@@ -63,7 +62,7 @@ class URLhausRepository @Inject constructor(
             val response = okHttpClient.newCall(request).execute()
 
             if (!response.isSuccessful) {
-                Log.e(TAG, "URLhaus API error: ${response.code}")
+                Timber.e("URLhaus API error: ${response.code}")
                 return@withContext ReputationResult(
                     isMalicious = false,
                     threatType = null,
@@ -76,11 +75,11 @@ class URLhausRepository @Inject constructor(
             val result = parseResponse(response.body?.string())
             cache.put(url, result)
 
-            Log.d(TAG, "URLhaus check for $url: ${result.isMalicious}")
+            Timber.d("URLhaus check for $url: ${result.isMalicious}")
             result
 
         } catch (e: Exception) {
-            Log.e(TAG, "Error checking URL with URLhaus", e)
+            Timber.e(e, "Error checking URL with URLhaus")
             ReputationResult(
                 isMalicious = false,
                 threatType = null,
@@ -138,7 +137,7 @@ class URLhausRepository @Inject constructor(
             )
 
         } catch (e: Exception) {
-            Log.e(TAG, "Error parsing URLhaus response", e)
+            Timber.e(e, "Error parsing URLhaus response")
             return ReputationResult(
                 isMalicious = false,
                 threatType = null,

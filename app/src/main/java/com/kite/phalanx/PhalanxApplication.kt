@@ -3,20 +3,18 @@ package com.kite.phalanx
 import android.app.Application
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
-import androidx.work.Constraints
-import androidx.work.ExistingPeriodicWorkPolicy
-import androidx.work.NetworkType
-import androidx.work.PeriodicWorkRequestBuilder
-import androidx.work.WorkManager
+import com.google.firebase.crashlytics.FirebaseCrashlytics
+import com.kite.phalanx.BuildConfig
 import com.kite.phalanx.domain.repository.SenderPackRepository
 import com.kite.phalanx.domain.usecase.MigrateTrustedDomainsUseCase
-import com.kite.phalanx.worker.TrashPurgeWorker
+import com.kite.phalanx.worker.WorkerScheduler
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import java.util.concurrent.TimeUnit
+import timber.log.Timber
 import javax.inject.Inject
 
 /**
@@ -25,9 +23,10 @@ import javax.inject.Inject
  * Responsibilities:
  * - Hilt dependency injection setup
  * - WorkManager initialization for background tasks
- * - Phase 3: Trash vault auto-purge scheduling
  * - Phase 3: Migration from legacy TrustedDomainsPreferences to AllowBlockListRepository
  * - Phase 4: Sender pack initialization for sender intelligence
+ * - Phase 7: Schedule periodic workers (database cleanup, trash purge, updates)
+ * - Phase 7: Cold-start optimization (defer non-critical tasks)
  */
 @HiltAndroidApp
 class PhalanxApplication : Application(), Configuration.Provider {
@@ -47,14 +46,29 @@ class PhalanxApplication : Application(), Configuration.Provider {
     override fun onCreate() {
         super.onCreate()
 
-        // Run one-time migrations
+        // Initialize Firebase Crashlytics
+        // Note: Crashlytics is disabled in debug builds (no crash reporting for developers)
+        // and automatically enabled in release builds for production monitoring
+        FirebaseCrashlytics.getInstance().setCrashlyticsCollectionEnabled(!BuildConfig.DEBUG)
+
+        // Initialize Timber logging
+        // Debug builds: Log everything to logcat with class tags
+        // Release builds: Only log WARN and ERROR to Firebase Crashlytics
+        if (BuildConfig.DEBUG) {
+            Timber.plant(Timber.DebugTree())
+        } else {
+            Timber.plant(CrashReportingTree())
+        }
+
+        // Phase 7: Cold-start optimization
+        // Defer non-critical initialization to reduce cold-start time
+        // Critical tasks run immediately, non-critical tasks deferred by 500ms
+
+        // Immediate: Run one-time migrations (critical for data consistency)
         runMigrations()
 
-        // Load sender intelligence pack (Phase 4)
-        loadSenderPack()
-
-        // Schedule periodic trash vault auto-purge
-        scheduleTrashPurge()
+        // Deferred: Load sender pack and schedule workers (non-critical for startup)
+        deferNonCriticalTasks()
     }
 
     /**
@@ -67,11 +81,37 @@ class PhalanxApplication : Application(), Configuration.Provider {
             try {
                 val migratedCount = migrateTrustedDomainsUseCase.execute()
                 if (migratedCount != null) {
-                    android.util.Log.i("PhalanxApp", "Migrated $migratedCount trusted domains to allow list")
+                    Timber.i("Migrated $migratedCount trusted domains to allow list")
                 }
             } catch (e: Exception) {
-                android.util.Log.e("PhalanxApp", "Migration failed: ${e.message}", e)
+                Timber.e(e, "Migration failed: ${e.message}")
+                FirebaseCrashlytics.getInstance().recordException(e)
             }
+        }
+    }
+
+    /**
+     * Defer non-critical initialization tasks (Phase 7 cold-start optimization).
+     *
+     * Defers:
+     * - Sender pack loading (Phase 4): Can happen after UI is ready
+     * - Worker scheduling (Phase 7): Background tasks, no urgency
+     *
+     * Deferral strategy: Wait 500ms after onCreate() completes, allowing
+     * the UI to render and the user to see the app immediately.
+     */
+    private fun deferNonCriticalTasks() {
+        applicationScope.launch {
+            // Delay 500ms to allow UI to render first
+            delay(500)
+
+            // Load sender pack (non-blocking, happens in background)
+            loadSenderPack()
+
+            // Schedule periodic workers (non-blocking, WorkManager handles scheduling)
+            WorkerScheduler.scheduleAllWorkers(applicationContext)
+
+            Timber.d("Non-critical tasks initialized (deferred 500ms)")
         }
     }
 
@@ -81,62 +121,35 @@ class PhalanxApplication : Application(), Configuration.Provider {
      * Defaults to India (IN) region. User can change region in Security Settings.
      * Pack loading is non-blocking and failures are logged but don't crash the app.
      */
-    private fun loadSenderPack() {
-        applicationScope.launch {
-            try {
-                // Get saved region preference (default: IN for India)
-                val prefs = getSharedPreferences("security_settings", MODE_PRIVATE)
-                val region = prefs.getString("sender_pack_region", "IN") ?: "IN"
+    private suspend fun loadSenderPack() {
+        try {
+            // Get saved region preference (default: IN for India)
+            val prefs = getSharedPreferences("security_settings", MODE_PRIVATE)
+            val region = prefs.getString("sender_pack_region", "IN") ?: "IN"
 
-                // Load and verify sender pack
-                val result = senderPackRepository.loadPack(region)
+            // Load and verify sender pack
+            val result = senderPackRepository.loadPack(region)
 
-                if (result.isValid) {
-                    android.util.Log.i("PhalanxApp", "Loaded sender pack for region: $region (version: ${result.pack?.version})")
-                } else {
-                    android.util.Log.w("PhalanxApp", "Failed to load sender pack: ${result.errorMessage}")
-                }
-            } catch (e: Exception) {
-                android.util.Log.e("PhalanxApp", "Sender pack loading failed: ${e.message}", e)
+            if (result.isValid) {
+                Timber.i("Loaded sender pack for region: $region (version: ${result.pack?.version})")
+            } else {
+                Timber.w("Failed to load sender pack: ${result.errorMessage}")
             }
+        } catch (e: Exception) {
+            Timber.e(e, "Sender pack loading failed: ${e.message}")
+            FirebaseCrashlytics.getInstance().recordException(e)
         }
     }
 
     /**
      * Provide WorkManager configuration with Hilt worker factory.
+     *
+     * Phase 7: Lazy initialization - configuration is only created when needed,
+     * reducing cold-start overhead.
      */
-    override val workManagerConfiguration: Configuration
-        get() = Configuration.Builder()
+    override val workManagerConfiguration: Configuration by lazy {
+        Configuration.Builder()
             .setWorkerFactory(workerFactory)
             .build()
-
-    /**
-     * Schedule daily trash vault auto-purge (Phase 3 - Safety Rails).
-     *
-     * Deletes messages older than 30 days from trash vault.
-     * Runs once per day with battery-friendly constraints.
-     */
-    private fun scheduleTrashPurge() {
-        val constraints = Constraints.Builder()
-            .setRequiresBatteryNotLow(true)        // Only run when battery is not low
-            .setRequiresDeviceIdle(false)          // Can run while device is in use
-            .setRequiresCharging(false)            // Can run on battery
-            .setRequiredNetworkType(NetworkType.NOT_REQUIRED) // No network needed
-            .build()
-
-        val purgeWorkRequest = PeriodicWorkRequestBuilder<TrashPurgeWorker>(
-            repeatInterval = 1,
-            repeatIntervalTimeUnit = TimeUnit.DAYS
-        )
-            .setConstraints(constraints)
-            .addTag(TrashPurgeWorker.TAG)
-            .build()
-
-        // Enqueue with KEEP policy - don't replace existing scheduled work
-        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
-            TrashPurgeWorker.WORK_NAME,
-            ExistingPeriodicWorkPolicy.KEEP,
-            purgeWorkRequest
-        )
     }
 }

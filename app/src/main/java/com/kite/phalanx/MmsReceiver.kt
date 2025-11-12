@@ -5,21 +5,17 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.Telephony
-import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import timber.log.Timber
 
 /**
  * Receiver for incoming MMS messages
  * Required for the app to be a default SMS app
  */
 class MmsReceiver : BroadcastReceiver() {
-    companion object {
-        private const val TAG = "MmsReceiver"
-    }
-
     override fun onReceive(context: Context?, intent: Intent?) {
         if (context == null || intent == null) return
 
@@ -50,7 +46,7 @@ class MmsReceiver : BroadcastReceiver() {
                     }
 
                     if (mmsDetails != null) {
-                        Log.d(TAG, "Received MMS from ${mmsDetails.sender} with ${mmsDetails.attachments.size} attachments")
+                        Timber.d("Received MMS from ${mmsDetails.sender} with ${mmsDetails.attachments.size} attachments")
 
                         // Show notification for the new MMS
                         val messageText = if (mmsDetails.body.isNotEmpty()) {
@@ -74,10 +70,10 @@ class MmsReceiver : BroadcastReceiver() {
                             timestamp = mmsDetails.timestamp
                         )
                     } else {
-                        Log.w(TAG, "Failed to retrieve MMS message after $attempts attempts")
+                        Timber.w("Failed to retrieve MMS message after $attempts attempts")
                     }
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error processing incoming MMS", e)
+                    Timber.e(e, "Error processing incoming MMS")
                 } finally {
                     pendingResult.finish()
                 }
@@ -106,7 +102,7 @@ class MmsReceiver : BroadcastReceiver() {
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error querying for latest MMS", e)
+            Timber.e(e, "Error querying for latest MMS")
         }
         return null
     }

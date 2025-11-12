@@ -1,10 +1,12 @@
 package com.kite.phalanx.di
 
 import com.kite.phalanx.data.repository.AllowBlockListRepositoryImpl
+import com.kite.phalanx.data.repository.LinkPreviewRepositoryImpl
 import com.kite.phalanx.data.repository.SenderPackRepositoryImpl
 import com.kite.phalanx.data.repository.TrashVaultRepositoryImpl
 import com.kite.phalanx.data.repository.UrlExpansionRepositoryImpl
 import com.kite.phalanx.domain.repository.AllowBlockListRepository
+import com.kite.phalanx.domain.repository.LinkPreviewRepository
 import com.kite.phalanx.domain.repository.SenderPackRepository
 import com.kite.phalanx.domain.repository.TrashVaultRepository
 import com.kite.phalanx.domain.repository.UrlExpansionRepository
@@ -20,6 +22,7 @@ import javax.inject.Singleton
  * Phase 1: URL expansion repository
  * Phase 3: Trash vault and allow/block list repositories
  * Phase 4: Sender pack repository
+ * Phase 5: Link preview repository
  */
 @Module
 @InstallIn(SingletonComponent::class)
@@ -51,4 +54,11 @@ abstract class RepositoryModule {
     abstract fun bindSenderPackRepository(
         impl: SenderPackRepositoryImpl
     ): SenderPackRepository
+
+    // Phase 5
+    @Binds
+    @Singleton
+    abstract fun bindLinkPreviewRepository(
+        impl: LinkPreviewRepositoryImpl
+    ): LinkPreviewRepository
 }

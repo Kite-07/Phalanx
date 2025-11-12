@@ -5,7 +5,9 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -27,20 +29,18 @@ import com.kite.phalanx.domain.model.VerdictLevel
  * Security chip shown under received messages.
  *
  * Per PRD Phase 2:
- * - Shows registered domain + color indicator
+ * - Shows verdict label with color indicator and icon
  * - GREEN: Safe (optional display)
- * - AMBER: Suspicious (yellow/orange)
- * - RED: Dangerous (red)
+ * - AMBER: Suspicious (yellow/orange) - "Be Careful"
+ * - RED: Dangerous (red) - "Dangerous"
  * - Tappable to show "Explain" bottom sheet
  *
  * @param verdict The security verdict for this message
- * @param registeredDomain The registered domain to display
  * @param onClick Called when chip is tapped to show explanation
  */
 @Composable
 fun SecurityChip(
     verdict: Verdict,
-    registeredDomain: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -92,23 +92,12 @@ fun SecurityChip(
                 modifier = Modifier.size(16.dp)
             )
 
-            Column(
-                verticalArrangement = Arrangement.spacedBy(2.dp)
-            ) {
-                Text(
-                    text = label,
-                    color = contentColor,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-                if (registeredDomain.isNotBlank()) {
-                    Text(
-                        text = registeredDomain,
-                        color = contentColor.copy(alpha = 0.8f),
-                        fontSize = 11.sp
-                    )
-                }
-            }
+            Text(
+                text = label,
+                color = contentColor,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold
+            )
 
             Icon(
                 imageVector = Icons.Default.Info,
@@ -151,6 +140,7 @@ fun SecurityExplanationSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 24.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {

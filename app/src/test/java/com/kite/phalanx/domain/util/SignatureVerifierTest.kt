@@ -2,6 +2,9 @@ package com.kite.phalanx.domain.util
 
 import org.junit.Test
 import org.junit.Assert.*
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
 /**
  * Unit tests for SignatureVerifier (Ed25519 signature verification).
@@ -16,6 +19,8 @@ import org.junit.Assert.*
  * Note: Ed25519 signature verification requires Android API 26+ or Java 15+.
  * Tests use reflection to check availability and skip if not supported.
  */
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [28])
 class SignatureVerifierTest {
 
     @Test
@@ -52,13 +57,20 @@ class SignatureVerifierTest {
         assertArrayEquals(byteArrayOf(0x48, 0x65, 0x6c, 0x6c, 0x6f), bytes)
     }
 
-    @Test(expected = IllegalArgumentException::class)
+    @Test
     fun `hexToBytes throws on odd-length hex string`() {
         val method = SignatureVerifier::class.java.getDeclaredMethod("hexToBytes", String::class.java)
         method.isAccessible = true
 
         val hex = "123" // Odd length
-        method.invoke(SignatureVerifier, hex)
+        try {
+            method.invoke(SignatureVerifier, hex)
+            fail("Should have thrown IllegalArgumentException")
+        } catch (e: java.lang.reflect.InvocationTargetException) {
+            // Reflection wraps the exception
+            assertTrue("Should throw IllegalArgumentException", e.cause is IllegalArgumentException)
+            assertEquals("Hex string must have even length", e.cause?.message)
+        }
     }
 
     @Test

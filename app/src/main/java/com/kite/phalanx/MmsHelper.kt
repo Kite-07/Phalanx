@@ -4,16 +4,14 @@ import android.content.Context
 import android.database.Cursor
 import android.net.Uri
 import android.provider.Telephony
-import android.util.Log
 import java.io.File
 import java.io.FileOutputStream
+import timber.log.Timber
 
 /**
  * Helper class for MMS message operations
  */
 object MmsHelper {
-    private const val TAG = "MmsHelper"
-
     /**
      * Parse MMS message from the system database
      * @param context Application context
@@ -75,7 +73,7 @@ object MmsHelper {
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error parsing MMS message", e)
+            Timber.e(e, "Error parsing MMS message")
         }
         return null
     }
@@ -177,7 +175,7 @@ object MmsHelper {
                         fileSize = inputStream.available().toLong()
                     }
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error getting file size for part $partId", e)
+                    Timber.e(e, "Error getting file size for part $partId")
                 }
 
                 attachments.add(
@@ -236,7 +234,7 @@ object MmsHelper {
 
             return file
         } catch (e: Exception) {
-            Log.e(TAG, "Error saving attachment to cache", e)
+            Timber.e(e, "Error saving attachment to cache")
             return null
         }
     }

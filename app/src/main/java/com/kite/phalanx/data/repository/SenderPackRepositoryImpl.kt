@@ -115,12 +115,37 @@ class SenderPackRepositoryImpl @Inject constructor(
     /**
      * Loads sender pack JSON from assets directory.
      * Expected path: assets/sender_packs/[region].json
+     *
+     * For unit tests: Falls back to classpath resources if assets are not available.
      */
     private fun loadPackFromAssets(region: String): String? {
+        val assetPath = "sender_packs/${region.uppercase()}.json"
+
+        // First try: Load from classpath resources (works for both unit tests and Robolectric)
+        val classLoader = Thread.currentThread().contextClassLoader ?: this::class.java.classLoader
+        val resourcePaths = listOf(
+            "assets/$assetPath",
+            assetPath
+        )
+
+        for (resourcePath in resourcePaths) {
+            try {
+                val inputStream = classLoader?.getResourceAsStream(resourcePath)
+                if (inputStream != null) {
+                    android.util.Log.d("SenderPackRepo", "✓ Loaded pack from classpath: $resourcePath")
+                    return inputStream.bufferedReader().use { it.readText() }
+                }
+            } catch (e: Exception) {
+                // Continue to next path
+            }
+        }
+
+        // Second try: Load from Android assets (production app)
         return try {
-            val assetPath = "sender_packs/${region.uppercase()}.json"
+            android.util.Log.d("SenderPackRepo", "Trying Android assets: $assetPath")
             context.assets.open(assetPath).bufferedReader().use { it.readText() }
         } catch (e: Exception) {
+            android.util.Log.w("SenderPackRepo", "Failed to load pack from any source for region: $region", e)
             null
         }
     }

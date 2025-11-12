@@ -1,7 +1,6 @@
 package com.kite.phalanx.data.repository
 
 import android.content.Context
-import android.util.Log
 import android.util.LruCache
 import com.kite.phalanx.SafeBrowsingPreferences
 import com.kite.phalanx.domain.model.ReputationResult
@@ -18,6 +17,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import javax.inject.Inject
 import javax.inject.Singleton
+import timber.log.Timber
 
 /**
  * Google Safe Browsing API v4 integration.
@@ -40,7 +40,6 @@ class SafeBrowsingRepository @Inject constructor(
 ) : ReputationService {
 
     companion object {
-        private const val TAG = "SafeBrowsingRepository"
         private const val API_ENDPOINT = "https://safebrowsing.googleapis.com/v4/threatMatches:find"
         private const val CACHE_SIZE = 1000
         private const val CACHE_TTL_MS = 24 * 60 * 60 * 1000L // 24 hours
@@ -57,14 +56,14 @@ class SafeBrowsingRepository @Inject constructor(
             // Check cache first
             cache[url]?.let { cached ->
                 if (System.currentTimeMillis() - cached.timestamp < CACHE_TTL_MS) {
-                    Log.d(TAG, "Cache hit for $url: ${cached.isMalicious}")
+                    Timber.d("Cache hit for $url: ${cached.isMalicious}")
                     return@withContext cached
                 }
             }
 
             // Get API key from preferences (custom key or default)
             val apiKey = SafeBrowsingPreferences.getApiKey(context)
-            Log.d(TAG, "Using API key: ${if (SafeBrowsingPreferences.hasCustomApiKey(context)) "custom" else "default"}")
+            Timber.d("Using API key: ${if (SafeBrowsingPreferences.hasCustomApiKey(context)) "custom" else "default"}")
 
             // Build request
             val requestBody = buildRequestBody(url)
@@ -77,14 +76,14 @@ class SafeBrowsingRepository @Inject constructor(
             val response = okHttpClient.newCall(request).execute()
 
             if (!response.isSuccessful) {
-                Log.e(TAG, "Safe Browsing API error: ${response.code}")
+                Timber.e("Safe Browsing API error: ${response.code}")
 
                 // Check if quota exceeded (HTTP 429 or 403 with quota message)
                 val isQuotaExceeded = response.code == 429 ||
                     (response.code == 403 && response.body?.string()?.contains("quota", ignoreCase = true) == true)
 
                 if (isQuotaExceeded) {
-                    Log.e(TAG, "Google Safe Browsing quota exceeded! User should add custom API key.")
+                    Timber.e("Google Safe Browsing quota exceeded! User should add custom API key.")
                     // Broadcast quota exceeded event
                     broadcastQuotaExceeded()
                 }
@@ -104,11 +103,11 @@ class SafeBrowsingRepository @Inject constructor(
             val result = parseResponse(response.body?.string())
             cache.put(url, result)
 
-            Log.d(TAG, "Safe Browsing check for $url: ${result.isMalicious}")
+            Timber.d("Safe Browsing check for $url: ${result.isMalicious}")
             result
 
         } catch (e: Exception) {
-            Log.e(TAG, "Error checking URL with Safe Browsing", e)
+            Timber.e(e, "Error checking URL with Safe Browsing")
             ReputationResult(
                 isMalicious = false,
                 threatType = null,
@@ -128,7 +127,7 @@ class SafeBrowsingRepository @Inject constructor(
             val intent = android.content.Intent(ACTION_QUOTA_EXCEEDED)
             context.sendBroadcast(intent)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to broadcast quota exceeded event", e)
+            Timber.e(e, "Failed to broadcast quota exceeded event")
         }
     }
 
@@ -201,7 +200,7 @@ class SafeBrowsingRepository @Inject constructor(
             )
 
         } catch (e: Exception) {
-            Log.e(TAG, "Error parsing Safe Browsing response", e)
+            Timber.e(e, "Error parsing Safe Browsing response")
             return ReputationResult(
                 isMalicious = false,
                 threatType = null,

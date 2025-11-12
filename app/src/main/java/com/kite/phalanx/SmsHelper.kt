@@ -9,15 +9,14 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.telephony.SmsManager
-import android.util.Log
 import android.widget.Toast
 import androidx.core.content.ContextCompat
+import timber.log.Timber
 
 /**
  * Helper class for sending SMS messages
  */
 object SmsHelper {
-    private const val TAG = "SmsHelper"
     private const val ACTION_SMS_SENT = "com.kite.phalanx.SMS_SENT"
     private const val ACTION_SMS_DELIVERED = "com.kite.phalanx.SMS_DELIVERED"
 
@@ -60,10 +59,10 @@ object SmsHelper {
             // This gives us a message URI to track status updates
             val messageUri = if (isDefaultSmsApp) {
                 val uri = SmsOperations.writeSentSms(context, recipient, message, System.currentTimeMillis(), subscriptionId)
-                Log.d(TAG, "Wrote message to database with URI: $uri")
+                Timber.d("Wrote message to database with URI: $uri")
                 uri
             } else {
-                Log.w(TAG, "Not default SMS app, message won't be tracked")
+                Timber.w("Not default SMS app, message won't be tracked")
                 null
             }
 
@@ -104,7 +103,7 @@ object SmsHelper {
                     setClass(context, SmsSentReceiver::class.java)
                     putExtra(SmsSentReceiver.EXTRA_MESSAGE_URI, messageUri.toString())
                 }
-                Log.d(TAG, "Creating sentIntent for URI: $messageUri")
+                Timber.d("Creating sentIntent for URI: $messageUri")
                 PendingIntent.getBroadcast(
                     context,
                     messageUri.hashCode(),
@@ -136,7 +135,7 @@ object SmsHelper {
             if (parts.size == 1) {
                 // Send single SMS
                 try {
-                    Log.d(TAG, "Sending SMS to $recipient with URI tracking: ${messageUri != null}")
+                    Timber.d("Sending SMS to $recipient with URI tracking: ${messageUri != null}")
                     smsManager.sendTextMessage(
                         recipient,
                         null,
@@ -144,13 +143,13 @@ object SmsHelper {
                         sentIntent,
                         deliveredIntent
                     )
-                    Log.d(TAG, "SMS sent successfully")
+                    Timber.d("SMS sent successfully")
                 } catch (e: IllegalArgumentException) {
-                    Log.e(TAG, "Invalid phone number or message", e)
+                    Timber.e(e, "Invalid phone number or message")
                     Toast.makeText(context, "Invalid phone number or message", Toast.LENGTH_SHORT).show()
                     return
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error sending SMS", e)
+                    Timber.e(e, "Error sending SMS")
                     throw e
                 }
             } else {

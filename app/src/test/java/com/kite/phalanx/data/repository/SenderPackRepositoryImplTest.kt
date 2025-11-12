@@ -42,7 +42,11 @@ class SenderPackRepositoryImplTest {
     fun `loadPack returns valid pack for IN region`() = runTest {
         val result = repository.loadPack("IN")
 
-        assertTrue("Pack should load successfully", result.isValid)
+        if (!result.isValid) {
+            println("ERROR: Pack failed to load. Error message: ${result.errorMessage}")
+        }
+
+        assertTrue("Pack should load successfully. Error: ${result.errorMessage}", result.isValid)
         assertNotNull("Pack should not be null", result.pack)
         assertEquals("IN", result.pack?.region)
         assertNull(result.errorMessage)

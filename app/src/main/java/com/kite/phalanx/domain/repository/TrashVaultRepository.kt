@@ -56,6 +56,14 @@ interface TrashVaultRepository {
     suspend fun purgeExpiredMessages(): Int
 
     /**
+     * Phase 7: Purge expired messages using the specified timestamp.
+     * Returns count of purged messages.
+     *
+     * @param now Current timestamp in milliseconds
+     */
+    suspend fun purgeExpiredMessages(now: Long): Int
+
+    /**
      * Permanently delete a specific trashed message.
      */
     suspend fun permanentlyDelete(messageId: Long)

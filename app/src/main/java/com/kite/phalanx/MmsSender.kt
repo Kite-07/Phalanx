@@ -8,12 +8,12 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Telephony
 import android.telephony.SmsManager
-import android.util.Log
 import android.widget.Toast
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.io.FileOutputStream
+import timber.log.Timber
 
 /**
  * Helper class for sending MMS messages
@@ -22,8 +22,6 @@ import java.io.FileOutputStream
  * This implementation uses SmsManager to send MMS and also writes to the database for record keeping.
  */
 object MmsSender {
-    private const val TAG = "MmsSender"
-
     /**
      * Send an MMS message with text and/or attachments
      * @param context Application context
@@ -77,7 +75,7 @@ object MmsSender {
                 withContext(Dispatchers.Main) {
                     Toast.makeText(context, "Sending MMS...", Toast.LENGTH_SHORT).show()
                 }
-                Log.d(TAG, "MMS sent to $recipient")
+                Timber.d("MMS sent to $recipient")
                 return@withContext true
             } else {
                 withContext(Dispatchers.Main) {
@@ -87,7 +85,7 @@ object MmsSender {
             }
 
         } catch (e: Exception) {
-            Log.e(TAG, "Error sending MMS", e)
+            Timber.e(e, "Error sending MMS")
             withContext(Dispatchers.Main) {
                 Toast.makeText(context, "Failed to send MMS: ${e.message}", Toast.LENGTH_SHORT).show()
             }
@@ -116,7 +114,7 @@ object MmsSender {
             }
 
             if (smsManager == null) {
-                Log.e(TAG, "Failed to get SmsManager")
+                Timber.e("Failed to get SmsManager")
                 return false
             }
 
@@ -133,7 +131,7 @@ object MmsSender {
 
             // Send using sendMultimediaMessage
             // Note: contentUri should point to the MMS we created in the database
-            Log.d(TAG, "Calling sendMultimediaMessage with URI: $mmsUri")
+            Timber.d("Calling sendMultimediaMessage with URI: $mmsUri")
             smsManager.sendMultimediaMessage(
                 context,
                 mmsUri,
@@ -142,10 +140,10 @@ object MmsSender {
                 sentPI  // sentIntent - to receive send status
             )
 
-            Log.d(TAG, "sendMultimediaMessage called successfully")
+            Timber.d("sendMultimediaMessage called successfully")
             return true
         } catch (e: Exception) {
-            Log.e(TAG, "Error sending MMS via SmsManager", e)
+            Timber.e(e, "Error sending MMS via SmsManager")
             return false
         }
     }
@@ -176,7 +174,7 @@ object MmsSender {
         return try {
             context.contentResolver.insert(Telephony.Mms.CONTENT_URI, values)
         } catch (e: Exception) {
-            Log.e(TAG, "Error inserting MMS", e)
+            Timber.e(e, "Error inserting MMS")
             null
         }
     }
@@ -195,7 +193,7 @@ object MmsSender {
         try {
             context.contentResolver.insert(partUri, values)
         } catch (e: Exception) {
-            Log.e(TAG, "Error inserting text part", e)
+            Timber.e(e, "Error inserting text part")
         }
     }
 
@@ -213,7 +211,7 @@ object MmsSender {
             // Read attachment data
             val inputStream = context.contentResolver.openInputStream(attachment.uri)
             if (inputStream == null) {
-                Log.e(TAG, "Failed to open input stream for attachment")
+                Timber.e("Failed to open input stream for attachment")
                 return
             }
 
@@ -234,7 +232,7 @@ object MmsSender {
 
             inputStream.close()
         } catch (e: Exception) {
-            Log.e(TAG, "Error inserting attachment part", e)
+            Timber.e(e, "Error inserting attachment part")
         }
     }
 
@@ -252,7 +250,7 @@ object MmsSender {
         try {
             context.contentResolver.insert(addrUri, values)
         } catch (e: Exception) {
-            Log.e(TAG, "Error inserting address", e)
+            Timber.e(e, "Error inserting address")
         }
     }
 }

@@ -38,8 +38,9 @@ class ExtractLinksUseCase @Inject constructor() {
 
         // Scheme-less URL pattern (e.g., bit.ly/abc, example.com)
         // Must have TLD and at least one path component or www prefix to avoid false positives
+        // Accepts URLs preceded by whitespace, punctuation (:,;!?()[]{}), or start of string
         private val SCHEMELESS_URL_REGEX = Regex(
-            """(?:^|[\s])((?:www\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*)|(?:(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+(?:com|org|net|edu|gov|co|io|ly|me|info|biz|app|dev|ai|tech|online|xyz|link|click|tk|ml|ga|cf|gq|gl|de)))(?:/[^\s]*)?""",
+            """(?:^|[\s:;!?,.()\[\]{}'"<>])((?:www\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*)|(?:(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+(?:com|org|net|edu|gov|co|io|ly|me|info|biz|app|dev|ai|tech|online|xyz|link|click|tk|ml|ga|cf|gq|gl|de)))(?:/[^\s]*)?""",
             RegexOption.IGNORE_CASE
         )
 

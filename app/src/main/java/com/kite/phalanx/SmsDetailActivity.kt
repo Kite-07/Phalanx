@@ -24,7 +24,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -36,6 +35,8 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -97,11 +98,11 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
-import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.kite.phalanx.ui.theme.PhalanxTheme
@@ -111,6 +112,7 @@ import com.kite.phalanx.ui.SecurityExplanationSheet
 import com.kite.phalanx.domain.model.VerdictLevel
 import dagger.hilt.android.AndroidEntryPoint
 import androidx.activity.viewModels
+import androidx.compose.foundation.layout.Arrangement
 import com.kite.phalanx.domain.usecase.MoveToTrashUseCase
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -162,13 +164,6 @@ class SmsDetailActivity : ComponentActivity() {
 
                 // Collect verdict cache from ViewModel
                 val verdictCache by viewModel.verdictCache.collectAsState()
-
-                // Build registered domain cache for displaying in SecurityChip
-                val registeredDomainCache = remember(verdictCache) {
-                    verdictCache.keys.associateWith { messageId ->
-                        viewModel.getRegisteredDomain(messageId) ?: ""
-                    }
-                }
 
                 // State for security explanation sheet
                 var showSecuritySheet by remember { mutableStateOf(false) }
@@ -268,6 +263,31 @@ class SmsDetailActivity : ComponentActivity() {
 
                 // Reply state
                 var replyingToMessage by remember { mutableStateOf<SmsMessage?>(null) }
+                val focusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
+                val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+
+                // Reply metadata state (for showing reply references in bubbles)
+                val replyMetadataMap = remember { androidx.compose.runtime.mutableStateMapOf<Long, ReplyMetadata>() }
+
+                // Load reply metadata for sent messages
+                LaunchedEffect(messages) {
+                    replyMetadataMap.clear()
+                    messages.filter { it.isSentByUser }.forEach { message ->
+                        launch {
+                            try {
+                                val metadata = ReplyMetadataPreferences.getReplyMetadata(
+                                    this@SmsDetailActivity,
+                                    message.timestamp
+                                )
+                                if (metadata != null) {
+                                    replyMetadataMap[message.timestamp] = metadata
+                                }
+                            } catch (e: Exception) {
+                                // Ignore errors loading reply metadata
+                            }
+                        }
+                    }
+                }
 
                 // Pin message state
                 var showPinDurationDialog by remember { mutableStateOf(false) }
@@ -371,7 +391,23 @@ class SmsDetailActivity : ComponentActivity() {
                                             // Set the message being replied to
                                             replyingToMessage = firstSelectedMessage
                                             selectedMessages = emptySet()
-                                            // TODO: Scroll to bottom/composer and focus
+
+                                            // Scroll to bottom and focus composer
+                                            scope.launch {
+                                                // Scroll to last message (bottom of list)
+                                                if (messages.isNotEmpty()) {
+                                                    listState.animateScrollToItem(messages.size - 1)
+                                                }
+
+                                                // Wait for scroll animation, then focus and show keyboard
+                                                kotlinx.coroutines.delay(300)
+                                                try {
+                                                    focusRequester.requestFocus()
+                                                    keyboardController?.show()
+                                                } catch (e: Exception) {
+                                                    // Ignore focus errors
+                                                }
+                                            }
                                         }) {
                                             Icon(Icons.AutoMirrored.Filled.Reply, contentDescription = "Reply")
                                         }
@@ -559,6 +595,7 @@ class SmsDetailActivity : ComponentActivity() {
                                 MessageComposer(
                             message = messageText,
                             textSizeScale = textSizeScale,
+                            focusRequester = focusRequester,
                             onMessageChange = { newText ->
                                 messageText = newText
                                 // Auto-save draft
@@ -576,6 +613,8 @@ class SmsDetailActivity : ComponentActivity() {
                                     scope.launch {
                                         val messageToSend = messageText
                                         val attachmentsToSend = attachments.toList()
+                                        val replyingTo = replyingToMessage // Capture before clearing
+
                                         // Get SIM to use for this conversation
                                         val subId = SimPreferences.getSimForConversation(this@SmsDetailActivity, sender)
 
@@ -604,6 +643,7 @@ class SmsDetailActivity : ComponentActivity() {
 
                                         messageText = ""
                                         attachments = emptyList()
+                                        replyingToMessage = null // Clear reply state
 
                                         // Delete draft after sending
                                         try {
@@ -611,8 +651,66 @@ class SmsDetailActivity : ComponentActivity() {
                                         } catch (e: Exception) {
                                             // Silently handle error
                                         }
-                                        // Refresh messages after a short delay to allow database write
+
+                                        // Wait for DB write, then save reply metadata
                                         kotlinx.coroutines.delay(500) // Wait for DB write
+
+                                        // Save reply metadata if this was a reply
+                                        if (replyingTo != null) {
+                                            try {
+                                                // Query the most recent sent message to get its actual timestamp
+                                                val actualTimestamp = withContext(Dispatchers.IO) {
+                                                    val cursor = contentResolver.query(
+                                                        Telephony.Sms.CONTENT_URI,
+                                                        arrayOf(Telephony.Sms.DATE),
+                                                        "${Telephony.Sms.ADDRESS} = ? AND ${Telephony.Sms.TYPE} = ?",
+                                                        arrayOf(sender, Telephony.Sms.MESSAGE_TYPE_SENT.toString()),
+                                                        "${Telephony.Sms.DATE} DESC"
+                                                    )
+                                                    cursor?.use {
+                                                        if (it.moveToFirst()) {
+                                                            it.getLong(it.getColumnIndexOrThrow(Telephony.Sms.DATE))
+                                                        } else null
+                                                    }
+                                                }
+
+                                                if (actualTimestamp != null) {
+                                                    val snippet = when {
+                                                        replyingTo.body.isNotBlank() -> {
+                                                            if (replyingTo.body.length > 50) {
+                                                                replyingTo.body.take(50) + "..."
+                                                            } else {
+                                                                replyingTo.body
+                                                            }
+                                                        }
+                                                        replyingTo.attachments.isNotEmpty() -> {
+                                                            val firstAttachment = replyingTo.attachments.first()
+                                                            when {
+                                                                firstAttachment.isImage -> "📷 Photo"
+                                                                firstAttachment.isVideo -> "🎥 Video"
+                                                                firstAttachment.isAudio -> "🎵 Audio"
+                                                                else -> "📎 Attachment"
+                                                            }
+                                                        }
+                                                        else -> "Message"
+                                                    }
+
+                                                    ReplyMetadataPreferences.saveReplyMetadata(
+                                                        context = this@SmsDetailActivity,
+                                                        sentMessageTimestamp = actualTimestamp,
+                                                        metadata = ReplyMetadata(
+                                                            replyToMessageId = replyingTo.timestamp,
+                                                            replyToSnippet = snippet,
+                                                            replyToSender = replyingTo.contactName ?: replyingTo.sender,
+                                                            replyToIsFromUser = replyingTo.isSentByUser
+                                                        )
+                                                    )
+                                                }
+                                            } catch (e: Exception) {
+                                                // Silently handle reply metadata save error
+                                            }
+                                        }
+
                                         refreshTrigger++
                                     }
                                 }
@@ -645,6 +743,7 @@ class SmsDetailActivity : ComponentActivity() {
                                         scope.launch {
                                             val messageToSend = messageText
                                             val attachmentsToSend = attachments.toList()
+                                            val replyingTo = replyingToMessage // Capture before clearing
 
                                             // Save as default for this conversation if checkbox was checked
                                             if (setAsDefault) {
@@ -676,6 +775,7 @@ class SmsDetailActivity : ComponentActivity() {
 
                                             messageText = ""
                                             attachments = emptyList()
+                                            replyingToMessage = null // Clear reply state
 
                                             // Delete draft after sending
                                             try {
@@ -683,8 +783,66 @@ class SmsDetailActivity : ComponentActivity() {
                                             } catch (e: Exception) {
                                                 // Silently handle error
                                             }
-                                            // Refresh messages
+
+                                            // Wait for DB write, then save reply metadata
                                             kotlinx.coroutines.delay(500)
+
+                                            // Save reply metadata if this was a reply
+                                            if (replyingTo != null) {
+                                                try {
+                                                    // Query the most recent sent message to get its actual timestamp
+                                                    val actualTimestamp = withContext(Dispatchers.IO) {
+                                                        val cursor = contentResolver.query(
+                                                            Telephony.Sms.CONTENT_URI,
+                                                            arrayOf(Telephony.Sms.DATE),
+                                                            "${Telephony.Sms.ADDRESS} = ? AND ${Telephony.Sms.TYPE} = ?",
+                                                            arrayOf(sender, Telephony.Sms.MESSAGE_TYPE_SENT.toString()),
+                                                            "${Telephony.Sms.DATE} DESC"
+                                                        )
+                                                        cursor?.use {
+                                                            if (it.moveToFirst()) {
+                                                                it.getLong(it.getColumnIndexOrThrow(Telephony.Sms.DATE))
+                                                            } else null
+                                                        }
+                                                    }
+
+                                                    if (actualTimestamp != null) {
+                                                        val snippet = when {
+                                                            replyingTo.body.isNotBlank() -> {
+                                                                if (replyingTo.body.length > 50) {
+                                                                    replyingTo.body.take(50) + "..."
+                                                                } else {
+                                                                    replyingTo.body
+                                                                }
+                                                            }
+                                                            replyingTo.attachments.isNotEmpty() -> {
+                                                                val firstAttachment = replyingTo.attachments.first()
+                                                                when {
+                                                                    firstAttachment.isImage -> "📷 Photo"
+                                                                    firstAttachment.isVideo -> "🎥 Video"
+                                                                    firstAttachment.isAudio -> "🎵 Audio"
+                                                                    else -> "📎 Attachment"
+                                                                }
+                                                            }
+                                                            else -> "Message"
+                                                        }
+
+                                                        ReplyMetadataPreferences.saveReplyMetadata(
+                                                            context = this@SmsDetailActivity,
+                                                            sentMessageTimestamp = actualTimestamp,
+                                                            metadata = ReplyMetadata(
+                                                                replyToMessageId = replyingTo.timestamp,
+                                                                replyToSnippet = snippet,
+                                                                replyToSender = replyingTo.contactName ?: replyingTo.sender,
+                                                                replyToIsFromUser = replyingTo.isSentByUser
+                                                            )
+                                                        )
+                                                    }
+                                                } catch (e: Exception) {
+                                                    // Silently handle reply metadata save error
+                                                }
+                                            }
+
                                             refreshTrigger++
                                         }
                                     }
@@ -743,7 +901,7 @@ class SmsDetailActivity : ComponentActivity() {
                                 scrollToIndex = scrollToIndex,
                                 textSizeScale = textSizeScale,
                                 verdictCache = verdictCache,
-                                registeredDomainCache = registeredDomainCache,
+                                replyMetadataMap = replyMetadataMap,
                                 onSecurityChipClick = { message ->
                                     selectedMessageForSecurity = message
                                     showSecuritySheet = true
@@ -763,6 +921,17 @@ class SmsDetailActivity : ComponentActivity() {
                                             selectedMessages - message.timestamp
                                         } else {
                                             selectedMessages + message.timestamp
+                                        }
+                                    }
+                                },
+                                onReplyReferenceClick = { replyToTimestamp ->
+                                    // Scroll to the original message that was replied to
+                                    val messageIndex = messageUiModels.indexOfFirst {
+                                        it.message.timestamp == replyToTimestamp
+                                    }
+                                    if (messageIndex >= 0) {
+                                        scope.launch {
+                                            listState.animateScrollToItem(messageIndex)
                                         }
                                     }
                                 },
@@ -1344,10 +1513,11 @@ internal fun SmsDetailScreen(
     scrollToIndex: Int,
     textSizeScale: Float,
     verdictCache: Map<Long, com.kite.phalanx.domain.model.Verdict> = emptyMap(),
-    registeredDomainCache: Map<Long, String> = emptyMap(),
+    replyMetadataMap: Map<Long, ReplyMetadata> = emptyMap(),
     onSecurityChipClick: ((SmsMessage) -> Unit)? = null,
     onMessageLongClick: (SmsMessage) -> Unit,
     onMessageClick: (SmsMessage) -> Unit,
+    onReplyReferenceClick: (Long) -> Unit = {},
     listState: androidx.compose.foundation.lazy.LazyListState,
     modifier: Modifier = Modifier,
     onRetry: ((SmsMessage) -> Unit)? = null
@@ -1415,10 +1585,11 @@ internal fun SmsDetailScreen(
                         isSelected = selectedMessages.contains(uiModel.message.timestamp),
                         textSizeScale = textSizeScale,
                         verdict = verdictCache[uiModel.message.timestamp],
-                        registeredDomain = registeredDomainCache[uiModel.message.timestamp] ?: "",
+                        replyMetadata = replyMetadataMap[uiModel.message.timestamp],
                         onSecurityChipClick = onSecurityChipClick,
                         onLongClick = { onMessageLongClick(uiModel.message) },
                         onClick = { onMessageClick(uiModel.message) },
+                        onReplyReferenceClick = onReplyReferenceClick,
                         onRetry = onRetry
                     )
                 }
@@ -1435,10 +1606,11 @@ fun MessageBubble(
     isSelected: Boolean,
     textSizeScale: Float,
     verdict: com.kite.phalanx.domain.model.Verdict? = null,
-    registeredDomain: String = "",
+    replyMetadata: ReplyMetadata? = null,
     onSecurityChipClick: ((SmsMessage) -> Unit)? = null,
     onLongClick: () -> Unit,
     onClick: () -> Unit,
+    onReplyReferenceClick: (Long) -> Unit = {},
     onRetry: ((SmsMessage) -> Unit)? = null
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -1518,6 +1690,16 @@ fun MessageBubble(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                // Show reply reference if this message is a reply
+                if (replyMetadata != null) {
+                    ReplyReference(
+                        metadata = replyMetadata,
+                        textSizeScale = textSizeScale,
+                        textColor = textColor,
+                        onClick = { onReplyReferenceClick(replyMetadata.replyToMessageId) }
+                    )
+                }
+
                 // Show attachments if present
                 if (message.attachments.isNotEmpty()) {
                     message.attachments.forEach { attachment ->
@@ -1656,7 +1838,6 @@ fun MessageBubble(
         if (!message.isSentByUser && verdict != null && verdict.level != VerdictLevel.GREEN) {
             SecurityChip(
                 verdict = verdict,
-                registeredDomain = registeredDomain,
                 onClick = { onSecurityChipClick?.invoke(message) },
                 modifier = Modifier.padding(top = 8.dp)
             )
@@ -1798,6 +1979,7 @@ fun NonReplyBottomBar(textSizeScale: Float, modifier: Modifier = Modifier) {
 fun MessageComposer(
     message: String,
     textSizeScale: Float,
+    focusRequester: androidx.compose.ui.focus.FocusRequester? = null,
     onMessageChange: (String) -> Unit,
     onSendClick: () -> Unit,
     onSendLongClick: () -> Unit = {},
@@ -1853,7 +2035,15 @@ fun MessageComposer(
                     OutlinedTextField(
                         value = message,
                         onValueChange = onMessageChange,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .then(
+                                if (focusRequester != null) {
+                                    Modifier.focusRequester(focusRequester)
+                                } else {
+                                    Modifier
+                                }
+                            ),
                         placeholder = { Text("Message") },
                         maxLines = 4
                     )
@@ -2010,6 +2200,71 @@ fun ReplyPreview(
                     imageVector = Icons.Default.Close,
                     contentDescription = "Cancel reply",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Reply reference shown inside a message bubble to indicate which message was replied to
+ */
+@Composable
+fun ReplyReference(
+    metadata: ReplyMetadata,
+    textSizeScale: Float,
+    textColor: Color,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier.clickable(onClick = onClick)
+    ) {
+        Row(
+            modifier = Modifier.padding(bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Vertical accent line
+            Surface(
+                modifier = Modifier
+                    .width(3.dp)
+                    .height(36.dp),
+                color = textColor.copy(alpha = 0.5f)
+            ) {}
+
+            Spacer(modifier = Modifier.width(10.dp))
+
+            // Reply reference content
+            Column(
+                verticalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                // "Replied to [Sender]"
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.Reply,
+                        contentDescription = null,
+                        modifier = Modifier.size(13.dp),
+                        tint = textColor.copy(alpha = 0.7f)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "Replied to ${metadata.replyToSender}",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = MaterialTheme.typography.labelSmall.fontSize * textSizeScale
+                        ),
+                        color = textColor.copy(alpha = 0.8f),
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+
+                // Original message snippet
+                Text(
+                    text = metadata.replyToSnippet,
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontSize = MaterialTheme.typography.bodySmall.fontSize * textSizeScale * 0.95f
+                    ),
+                    color = textColor.copy(alpha = 0.7f),
+                    maxLines = 2,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                 )
             }
         }

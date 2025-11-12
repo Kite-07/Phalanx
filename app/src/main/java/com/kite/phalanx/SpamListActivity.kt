@@ -8,7 +8,6 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.ContactsContract
 import android.provider.Telephony
-import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.DisposableEffect
@@ -49,6 +48,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.*
+import timber.log.Timber
 
 class SpamListActivity : ComponentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
@@ -315,7 +315,7 @@ class SpamListActivity : ComponentActivity() {
                             draftText = null
                         )
                     } catch (e: Exception) {
-                        Log.e("SpamListActivity", "Error processing blocked conversation", e)
+                        Timber.e(e, "Error processing blocked conversation")
                         continue
                     }
                 }
@@ -347,7 +347,7 @@ class SpamListActivity : ComponentActivity() {
                     }
                 }
             } catch (e: Exception) {
-                Log.e("SpamListActivity", "Error loading blocked numbers", e)
+                Timber.e(e, "Error loading blocked numbers")
             }
         }
         return blockedNumbers
